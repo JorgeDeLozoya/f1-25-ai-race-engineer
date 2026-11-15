@@ -190,6 +190,14 @@ class RadioHudOverlay:
         self._sync_geometry_height()
         self._show_window()
 
+    def reset_position(self) -> None:
+        """Restaura la posicion del HUD al lateral derecho por defecto."""
+        self.cfg.hud_x = -1
+        self.cfg.hud_y = -1
+        self.cfg.save()
+        self._position_initial()
+        self.trigger_preview(8.0)
+
     def _show_window(self) -> None:
         if not self._visible:
             self._visible = True
@@ -199,7 +207,7 @@ class RadioHudOverlay:
                 self.win.attributes("-topmost", True)
             except Exception:
                 pass
-        self._current_alpha = 0.94
+        self._current_alpha = max(0.45, min(1.0, float(getattr(self.cfg, "hud_opacity", 0.94))))
         try:
             self.win.attributes("-alpha", self._current_alpha)
         except Exception:
@@ -219,11 +227,18 @@ class RadioHudOverlay:
         self.win.geometry(f"{self.WIDTH}x{req_h}+{cur_x}+{cur_y}")
 
     def _update_identity_from_telemetry(self) -> None:
+        id_mode = (getattr(self.cfg, "hud_identity_mode", "auto") or "auto").lower()
+        custom_team = getattr(self.cfg, "hud_custom_team", "Ferrari") or "Ferrari"
+        custom_num = int(getattr(self.cfg, "hud_custom_number", 16) or 16)
+
         with self.app.telemetry.lock:
             st = self.app.telemetry.state
-            if not st.connected:
+            if id_mode == "custom" or not st.connected:
                 drv, color, badge, num = L.resolve_radio_identity(
-                    self.cfg.driver_name, "Ferrari", fallback_driver=self.cfg.driver_name, race_number=16
+                    self.cfg.driver_name,
+                    custom_team,
+                    fallback_driver=self.cfg.driver_name,
+                    race_number=custom_num,
                 )
             else:
                 rep = analyze_strategy(st, self.cfg.driver_name)
@@ -231,7 +246,10 @@ class RadioHudOverlay:
                 if 0 <= st.player_idx < len(st.participants):
                     r_num = st.participants[st.player_idx].race_number
                 drv, color, badge, num = L.resolve_radio_identity(
-                    rep.player_driver, rep.player_team, fallback_driver=self.cfg.driver_name, race_number=r_num
+                    rep.player_driver,
+                    rep.player_team,
+                    fallback_driver=self.cfg.driver_name,
+                    race_number=r_num or custom_num,
                 )
         self._drv_name = drv
         self._team_color = color

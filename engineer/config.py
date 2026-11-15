@@ -33,6 +33,10 @@ class EngineerConfig:
     hud_x: int = -1                       # Coordenada X en pantalla (-1 = automatico a la derecha del HUD de F1 25)
     hud_y: int = -1                       # Coordenada Y en pantalla (-1 = automatico debajo del crono de F1 25)
     hud_hold_seconds: float = 6.5         # Segundos que permanece visible tras terminar de hablar el ingeniero
+    hud_opacity: float = 0.94             # Opacidad del HUD en el juego (0.50 a 1.00)
+    hud_identity_mode: str = "auto"       # "auto" (Segun el coche que lleves en telemetria) o "custom" (Siempre tu nombre/equipo elegido)
+    hud_custom_team: str = "Ferrari"      # Escuderia para el estilo visual cuando hud_identity_mode == "custom" o sin telemetria
+    hud_custom_number: int = 16           # Dorsal personalizado (1-99)
 
     @property
     def wake_word_list(self) -> list[str]:

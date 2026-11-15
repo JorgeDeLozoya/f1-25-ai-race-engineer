@@ -373,6 +373,75 @@ class SwoftyEngineerPlugin:
                     }
                 },
                 {
+                    "select": {
+                        "id": "hud_identity_mode",
+                        "label": "Identidad y Escudería en el HUD F1 TV",
+                        "value": self.cfg.hud_identity_mode,
+                        "options": [
+                            {"value": "auto", "label": "🏎️ Automático por Telemetría del Coche (LECLERC, SENNA...)"},
+                            {"value": "custom", "label": "👤 Usar Siempre Mi Nombre, Escudería y Dorsal"},
+                        ],
+                    }
+                },
+                {
+                    "select": {
+                        "id": "hud_custom_team",
+                        "label": "Escudería / Tema de Color F1 TV",
+                        "value": self.cfg.hud_custom_team,
+                        "options": [
+                            {"value": "Ferrari", "label": "Ferrari (Rojo #FF1E27)"},
+                            {"value": "McLaren", "label": "McLaren (Papaya #FF8000)"},
+                            {"value": "Mercedes", "label": "Mercedes (Petronas #27F4D2)"},
+                            {"value": "Red Bull", "label": "Red Bull Racing (#4781D7)"},
+                            {"value": "Aston Martin", "label": "Aston Martin (#00E7A7)"},
+                            {"value": "Williams", "label": "Williams (#64C4FF)"},
+                            {"value": "Alpine", "label": "Alpine (#00A8FF)"},
+                            {"value": "Racing Bulls", "label": "Racing Bulls (#6692FF)"},
+                            {"value": "Haas", "label": "Haas F1 (#F03A47)"},
+                            {"value": "Sauber", "label": "Kick Sauber / Audi (#52E252)"},
+                            {"value": "HRT (Hispania)", "label": "HRT Hispania 2010 (#E5B842)"},
+                            {"value": "Renault", "label": "Renault F1 2010 (#FFD800)"},
+                        ],
+                    }
+                },
+                {
+                    "number": {
+                        "id": "hud_custom_number",
+                        "label": "Dorsal Personalizado (1 - 99)",
+                        "value": self.cfg.hud_custom_number,
+                        "min": 1,
+                        "max": 99,
+                        "step": 1,
+                    }
+                },
+                {
+                    "select": {
+                        "id": "voice_es",
+                        "label": "Voz Neural en Español (Edge TTS)",
+                        "value": self.cfg.voice_es,
+                        "options": [
+                            {"value": "es-ES-AlvaroNeural", "label": "Álvaro (España · Ingeniero F1)"},
+                            {"value": "es-ES-ElviraNeural", "label": "Elvira (España · Ingeniera F1)"},
+                            {"value": "es-MX-JorgeNeural", "label": "Jorge (Latinoamérica · Muro)"},
+                            {"value": "es-AR-TomasNeural", "label": "Tomás (Argentina · Muro)"},
+                        ],
+                    }
+                },
+                {
+                    "select": {
+                        "id": "voice_en",
+                        "label": "Voz Neural en Inglés (Edge TTS)",
+                        "value": self.cfg.voice_en,
+                        "options": [
+                            {"value": "en-GB-RyanNeural", "label": "Ryan (UK British · GP / Bono Style)"},
+                            {"value": "en-GB-ThomasNeural", "label": "Thomas (UK British · Pit Wall)"},
+                            {"value": "en-GB-SoniaNeural", "label": "Sonia (UK British · Strategy Engineer)"},
+                            {"value": "en-US-GuyNeural", "label": "Guy (US · Race Engineer)"},
+                            {"value": "en-AU-WilliamNeural", "label": "William (Australia · Race Engineer)"},
+                        ],
+                    }
+                },
+                {
                     "text": {
                         "id": "driver_name",
                         "label": "Tu Nombre de Piloto",
@@ -474,9 +543,24 @@ class SwoftyEngineerPlugin:
 
         if "submit" in event and event["submit"].get("form") == "engineer_settings":
             vals = event["submit"].get("values", {})
-            for k in ("gemini_api_key", "language", "voice_mode", "hud_mode", "driver_name", "engineer_name", "wake_words", "ptt_key"):
+            for k in (
+                "gemini_api_key",
+                "language",
+                "voice_mode",
+                "hud_mode",
+                "hud_identity_mode",
+                "hud_custom_team",
+                "voice_es",
+                "voice_en",
+                "driver_name",
+                "engineer_name",
+                "wake_words",
+                "ptt_key",
+            ):
                 if k in vals and isinstance(vals[k], str):
                     setattr(self.cfg, k, vals[k].strip())
+            if "hud_custom_number" in vals:
+                self.cfg.hud_custom_number = max(1, min(99, int(vals["hud_custom_number"])))
             if "udp_port" in vals:
                 self.cfg.udp_port = int(vals["udp_port"])
             if "radio_effect_pct" in vals:
