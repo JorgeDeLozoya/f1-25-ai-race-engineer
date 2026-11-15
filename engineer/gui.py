@@ -1261,22 +1261,22 @@ class PitWallWindow:
 
         quick_queries = (
             [
-                ("📋 Plans A/B/C", "What are Plan A, Plan B and Plan C?"),
+                ("📋 Switch to Plan B", "Can we switch to Plan B?"),
+                ("🔄 Car Won't Turn", "The car won't turn, I have understeer"),
+                ("⚡ Need More Energy", "I need more energy and power on the straight"),
+                ("🛑 Brakes Are Weak", "The car has poor braking and I'm locking up"),
                 ("⏱️ Rival Pit Stop?", "When did Norris pit and when do you think he will pit?"),
                 ("📊 Sectors S1/S2/S3", "Where am I losing time in the sectors?"),
-                ("🤝 Team Orders?", "If I let my teammate pass what benefits do we have?"),
-                ("🎮 MFD: Request Box", "Request pit stop on the MFD and prepare tyres"),
-                ("🌧️ Wet Crossover?", "Is it time for Intermediates or dry slicks?"),
                 ("💢 Argue Strategy", "I don't want to box, your strategy call is wrong"),
             ]
             if en
             else [
-                ("📋 Planes A/B/C", "¿Cuáles son el Plan A, Plan B y Plan C?"),
+                ("📋 Pasar a Plan B", "Podemos pasar al Plan B"),
+                ("🔄 Me Cuesta Girar", "Me cuesta girar el coche en las curvas"),
+                ("⚡ Necesito Energía", "Necesito más energía y potencia en recta"),
+                ("🛑 Frena Poco", "El coche frena poco y me voy largo en la frenada"),
                 ("⏱️ ¿Parada Rival?", "¿Cuándo ha hecho la parada Norris y cuándo crees que parará?"),
                 ("📊 Sectores S1/S2/S3", "¿Dónde estoy perdiendo tiempo en los sectores?"),
-                ("🤝 Órdenes Equipo", "Si dejo adelantar a mi compañero qué beneficios tenemos"),
-                ("🎮 MFD: Solicita Box", "Solicita box en el MFD y prepara los neumáticos"),
-                ("🌧️ ¿Crossover Lluvia?", "¿Es momento de intermedios o pista para secos?"),
                 ("💢 Discutir / No Paro", "No quiero parar en boxes, estás equivocado con la estrategia"),
             ]
         )
@@ -1639,6 +1639,8 @@ class PitWallWindow:
                 "─" * 42,
                 f"FUEL REMAINING : {rep.fuel_kg:.1f} kg ({rep.fuel_laps_margin:+.2f} laps)",
                 f"ERS BATTERY    : {rep.ers_pct}% (Mode: {rep.ers_mode.upper()})",
+                f"MFD CAR SETUP  : Brake Bias {rep.brake_bias}% | Diff {rep.diff_pct}% | Wing {rep.front_wing_delta:+d}",
+                f"AI AUTO-ACTION : {rep.ai_auto_action_en[:46] if rep.ai_auto_action_en else 'Active (Say Plan B, cant turn, need energy...)'}",
                 f"WEATHER        : {rep.weather_now.upper()} (Rain: {rep.rain_forecast_pct}%)",
                 f"CAR DAMAGE     : {rep.damage_summary_en}",
             ]
@@ -1661,6 +1663,8 @@ class PitWallWindow:
                 "─" * 42,
                 f"COMBUSTIBLE    : {rep.fuel_kg:.1f} kg ({rep.fuel_laps_margin:+.2f} vueltas)",
                 f"BATERÍA ERS    : {rep.ers_pct}% (Modo: {rep.ers_mode.upper()})",
+                f"REGLAJES MFD   : Frenada {rep.brake_bias}% | Diferencial {rep.diff_pct}% | Ala {rep.front_wing_delta:+d}",
+                f"IA AUTO-SETUP  : {rep.ai_auto_action_es[:46] if rep.ai_auto_action_es else 'Activo (Di Plan B, cuesta girar, más energía...)'}",
                 f"METEOROLOGÍA   : {rep.weather_now.upper()} (Lluvia: {rep.rain_forecast_pct}%)",
                 f"ESTADO COCHE   : {rep.damage_summary_es}",
             ]

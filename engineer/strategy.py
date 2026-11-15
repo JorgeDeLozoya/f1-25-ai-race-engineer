@@ -6,6 +6,8 @@ import random
 import re
 import time
 
+from .config import EngineerConfig
+from .mfd import LIVE_OVERRIDES, auto_adjust_car_mfd
 from .telemetry import lookups as L
 from .telemetry.context import build_standings, fmt_ms
 from .telemetry.listener import RaceState
@@ -116,8 +118,189 @@ class StrategyReport:
     debrief_en: str = (
         "Chequered flag, race over! You brought it home P4 after starting P6 on the grid, gaining 2 positions with a personal best of 1:46.210. Mega job from the pit wall!"
     )
+    diff_pct: int = 60
+    front_wing_delta: int = 0
+    ai_auto_action_es: str = "Muro IA en modo automático activo."
+    ai_auto_action_en: str = "Pit wall AI auto-tuning active."
     full_briefing_es: str = ""
     full_briefing_en: str = ""
+
+
+CIRCUIT_PROFILES: dict[str, dict[str, str]] = {
+    "spa": {
+        "fast_es": "Pouhon, Raidillon y Blanchimont",
+        "fast_en": "Pouhon, Raidillon and Blanchimont",
+        "brake_es": "la chicane Bus Stop y la horquilla de La Source",
+        "brake_en": "the Bus Stop chicane and La Source hairpin",
+        "harvest_es": "la frenada de Les Combes y Bruxelles",
+        "harvest_en": "braking into Les Combes and Bruxelles",
+        "straight_es": "la recta de Kemmel",
+        "straight_en": "the Kemmel straight",
+    },
+    "silverstone": {
+        "fast_es": "Maggotts, Becketts y Copse",
+        "fast_en": "Maggotts, Becketts and Copse",
+        "brake_es": "Vale, Club y Brooklands",
+        "brake_en": "Vale, Club and Brooklands",
+        "harvest_es": "Stowe y Village",
+        "harvest_en": "Stowe and Village",
+        "straight_es": "la recta de Hangar",
+        "straight_en": "the Hangar straight",
+    },
+    "catalunya": {
+        "fast_es": "la Curva 3 y la Curva 9 Campsa",
+        "fast_en": "Turn 3 and Turn 9 Campsa",
+        "brake_es": "la Curva 1 Elf y la Curva 10 La Caixa",
+        "brake_en": "Turn 1 and Turn 10",
+        "harvest_es": "la Curva 5 y la Curva 10",
+        "harvest_en": "Turn 5 and Turn 10",
+        "straight_es": "la recta principal de meta",
+        "straight_en": "the main pit straight",
+    },
+    "monza": {
+        "fast_es": "la Curva Grande, Ascari y la Parabólica",
+        "fast_en": "Curva Grande, Ascari and Parabolica",
+        "brake_es": "la Prima Variante y la Variante della Roggia",
+        "brake_en": "Prima Variante and Variante della Roggia",
+        "harvest_es": "las dos curvas de Lesmo y la primera chicane",
+        "harvest_en": "both Lesmos and the first chicane",
+        "straight_es": "la recta principal de Monza",
+        "straight_en": "the Monza main straight",
+    },
+    "monaco": {
+        "fast_es": "Massenet, Casino y la zona de la Piscina",
+        "fast_en": "Massenet, Casino and the Swimming Pool section",
+        "brake_es": "Sainte Dévote y la Nouvelle Chicane",
+        "brake_en": "Sainte Devote and the Nouvelle Chicane",
+        "harvest_es": "Mirabeau, Loews y Rascasse",
+        "harvest_en": "Mirabeau, Loews and Rascasse",
+        "straight_es": "la salida del túnel",
+        "straight_en": "the tunnel exit",
+    },
+    "sakhir": {
+        "fast_es": "las enlazadas de las curvas 5, 6 y 7",
+        "fast_en": "the Turn 5-6-7 sweepers",
+        "brake_es": "la Curva 1 y la delicada frenada en apoyo de la Curva 10",
+        "brake_en": "Turn 1 and the tricky trail-braking zone at Turn 10",
+        "harvest_es": "la horquilla de la Curva 8 y la Curva 14",
+        "harvest_en": "Turn 8 hairpin and Turn 14",
+        "straight_es": "la recta principal y la recta trasera hacia la curva 4",
+        "straight_en": "the main straight and the run to Turn 4",
+    },
+    "suzuka": {
+        "fast_es": "las Eses del primer sector, Degner y la 130R",
+        "fast_en": "the Sector 1 Esses, Degner and 130R",
+        "brake_es": "la Horquilla y la última Chicane del Triángulo",
+        "brake_en": "the Hairpin and the Casio Triangle chicane",
+        "harvest_es": "la curva Spoon y la Horquilla",
+        "harvest_en": "Spoon Curve and the Hairpin",
+        "straight_es": "la recta trasera antes de la 130R",
+        "straight_en": "the back straight into 130R",
+    },
+    "interlagos": {
+        "fast_es": "Curva do Sol y Ferradura",
+        "fast_en": "Curva do Sol and Ferradura",
+        "brake_es": "las Eses de Senna y Descida do Lago",
+        "brake_en": "the Senna S and Descida do Lago",
+        "harvest_es": "Junção y Bico de Pato",
+        "harvest_en": "Juncao and Bico de Pato",
+        "straight_es": "la subida de Reta Oposta",
+        "straight_en": "the Reta Oposta climb",
+    },
+}
+
+
+def get_circuit_profile(track_name: str) -> dict[str, str]:
+    low = (track_name or "").lower()
+    for key, prof in CIRCUIT_PROFILES.items():
+        if key in low:
+            return prof
+    return {
+        "fast_es": "las curvas rápidas del segundo sector",
+        "fast_en": "the high-speed corners in Sector 2",
+        "brake_es": "las frenadas fuertes de final de recta",
+        "brake_en": "the heavy braking zones at the end of the straights",
+        "harvest_es": "las horquillas lentas del circuito",
+        "harvest_en": "the slow hairpins on the circuit",
+        "straight_es": "la recta principal de DRS",
+        "straight_en": "the main DRS straight",
+    }
+
+
+def diagnose_and_tune_car(
+    issue: str, rep: StrategyReport, cfg: EngineerConfig, lang: str = "es"
+) -> str:
+    """Analiza circuito + neumatico + clima + temperaturas, aplica el cambio automatico en el MFD y responde."""
+    prof = get_circuit_profile(rep.track_name)
+    tuned = auto_adjust_car_mfd(issue, cfg, base_brake_bias=rep.brake_bias)
+    new_bb = tuned.get("brake_bias", rep.brake_bias)
+    new_diff = tuned.get("diff", LIVE_OVERRIDES.diff_pct)
+    new_wing = tuned.get("wing", LIVE_OVERRIDES.front_wing_delta)
+    wet_note_es = " con la pista delicada por la humedad" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" con el asfalto a {rep.track_temp} grados"
+    wet_note_en = " on this damp surface" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" with track temp at {rep.track_temp} degrees"
+
+    if issue == "understeer":
+        if lang == "en":
+            return (
+                f"Copy on the understeer in {rep.track_name}. With your {rep.current_tyre}s at {rep.max_tyre_temp} degrees and {rep.max_wear_pct:.0f}% wear{wet_note_en}, "
+                f"the front axle is washing out through {prof['fast_en']}. "
+                f"I have automatically shifted your MFD brake bias rearward to {new_bb}%, opened the differential to {new_diff}% to help the car rotate, "
+                f"and pre-set +{new_wing} click of front wing for our lap {rep.pit_window_ideal} pit stop."
+            )
+        return (
+            f"Te copio con la falta de giro aquí en {rep.track_name}. Con el neumático {rep.current_tyre_es} a {rep.max_tyre_temp} grados y al {rep.max_wear_pct:.0f}% de desgaste{wet_note_es}, "
+            f"te cuesta meter el morro en {prof['fast_es']}. "
+            f"Ya te he bajado automáticamente desde el muro el reparto de frenada al {new_bb}% en el MFD, he abierto el diferencial al {new_diff}% para que rote mejor en el vértice, "
+            f"y he dejado preparado +{new_wing} punto de alerón delantero para la parada de la vuelta {rep.pit_window_ideal}."
+        )
+
+    if issue == "oversteer":
+        if lang == "en":
+            return (
+                f"Understood on the rear instability at {rep.track_name}. Your {rep.current_tyre} tyres are at {rep.max_tyre_temp} degrees{wet_note_en}. "
+                f"I just moved your MFD brake bias forward to {new_bb}% and opened the on-throttle differential to {new_diff}% to calm the rear down exiting {prof['harvest_en']}. "
+                f"Short-shift from 2nd to 3rd gear on exit!"
+            )
+        return (
+            f"Recibido con el sobreviraje en {rep.track_name}. Tus gomas {rep.current_tyre_es}s van a {rep.max_tyre_temp} grados{wet_note_es}. "
+            f"Te acabo de subir automáticamente el reparto de frenada al {new_bb}% delante y he bajado el diferencial en aceleración al {new_diff}% en el MFD para sujetar la trasera al salir de {prof['harvest_es']}. "
+            f"Mete tercera un poco antes al traccionar."
+        )
+
+    if issue == "poor_braking":
+        if lang == "en":
+            return (
+                f"Copy on the braking feel at {rep.track_name}. Brake discs are at {rep.max_brake_temp} degrees on {rep.tyre_age}-lap old {rep.current_tyre}s. "
+                f"I have automatically adjusted your MFD brake bias to {new_bb}% and increased engine braking differential to {new_diff}% so the car stops much shorter into {prof['brake_en']}. "
+                f"Brake five metres earlier in straight-line threshold before turning in."
+            )
+        return (
+            f"Te copio con los frenos aquí en {rep.track_name}. Llevas los discos a {rep.max_brake_temp} grados con goma {rep.current_tyre_es} de {rep.tyre_age} vueltas. "
+            f"Te he reajustado automáticamente el reparto de frenada al {new_bb}% y la retención del diferencial al {new_diff}% en el MFD para darte más mordiente en {prof['brake_es']}. "
+            f"Frena fuerte en línea recta y suelta pedal progresivo al girar."
+        )
+
+    if issue == "more_power":
+        if lang == "en":
+            return (
+                f"Copy, giving you full power now! I have switched your MFD ERS deployment to Overtake mode with {rep.ers_pct}% battery left. "
+                f"Use it all down {prof['straight_en']} to attack {rep.ahead_name}, and harvest on braking into {prof['harvest_en']}."
+            )
+        return (
+            f"¡Recibido, te doy toda la potencia ahora mismo! Ya te he activado automáticamente el mapa de Adelantamiento en el MFD con tu {rep.ers_pct}% de batería. "
+            f"Despliégalo a fondo en {prof['straight_es']} para tirarle el coche a {rep.ahead_name}, y recarga luego frenando en {prof['harvest_es']}."
+        )
+
+    if issue == "save_battery":
+        if lang == "en":
+            return (
+                f"Copy, switching your MFD ERS mode to Harvest now. Do 20 metres of lift and coast before braking into {prof['brake_en']} and {prof['harvest_en']} and we will recover 15% battery per lap."
+            )
+        return (
+            f"Copiado, te acabo de bajar automáticamente el mapa de ERS a modo Recarga en el MFD. Levanta el pie veinte metros antes de frenar en {prof['brake_es']} y {prof['harvest_es']} y recuperaremos un 15% de batería por vuelta."
+        )
+
+    return rep.setup_advice_en if lang == "en" else rep.setup_advice_es
 
 
 def _parse_tyre_label(label: str) -> tuple[str, int]:
@@ -271,7 +454,16 @@ def compare_car_sectors(me_row: dict | None, rival_row: dict | None, rep: Strate
 
 def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyReport:
     """Calcula toda la situacion tactica, ritmo relativo, reglajes y posibles estrategias."""
+    ov = LIVE_OVERRIDES
     if not state.connected or not state.laps:
+        demo_pit_ideal = ov.pit_lap_override if ov.pit_lap_override > 0 else 10
+        demo_pit_latest = ov.pit_lap_override if ov.pit_lap_override > 0 else 13
+        demo_comp = ov.compound_override if ov.compound_override else "Soft"
+        demo_comp_es = ov.compound_override_es if ov.compound_override_es else "blando"
+        demo_bb = max(50, min(65, 56 + ov.brake_bias_delta))
+        demo_ers = ov.ers_mode_override if ov.ers_mode_override else "medium"
+        demo_ers_es = ov.ers_mode_override_es if ov.ers_mode_override_es else "medio"
+        demo_box_rec = f"PLAN {ov.active_plan} (Vuelta {demo_pit_ideal} -> {demo_comp})" if ov.pit_lap_override > 0 else "STAY OUT"
         return StrategyReport(
             connected=False,
             track_name="Spa-Francorchamps (Demo)",
@@ -296,17 +488,17 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             est_tyre_laps_left=9,
             max_tyre_temp=96,
             max_brake_temp=610,
-            brake_bias=56,
+            brake_bias=demo_bb,
             penalties_s=0,
             warnings_count=1,
-            box_recommendation="STAY OUT",
-            recommended_compound="Soft",
-            recommended_compound_es="blando",
-            pit_window_ideal=10,
-            pit_window_latest=13,
+            box_recommendation=demo_box_rec,
+            recommended_compound=demo_comp,
+            recommended_compound_es=demo_comp_es,
+            pit_window_ideal=demo_pit_ideal,
+            pit_window_latest=demo_pit_latest,
             predicted_rejoin_pos=8,
-            rejoin_summary_es="Si paras ahora caerías a octava posición detrás de Alonso, quedando 4 vueltas es mejor seguir en pista.",
-            rejoin_summary_en="If we box now we drop to P8 behind Alonso, with 4 laps remaining it is better to stay out.",
+            rejoin_summary_es=f"Si paras en la vuelta {demo_pit_ideal} (Plan {ov.active_plan}) montarás neumático {demo_comp_es} y saldrás en octava posición detrás de Alonso.",
+            rejoin_summary_en=f"If we box on lap {demo_pit_ideal} (Plan {ov.active_plan}) we fit {demo_comp} tyres and rejoin P8 behind Alonso.",
             undercut_summary_es="Tienes a Norris delante a 1 con 4 segundos con medios de 9 vueltas, empujando con ERS entras en su DRS en la próxima vuelta.",
             undercut_summary_en="Norris is 1 point 4 ahead on 9 lap old mediums, push with ERS to get into his DRS next lap.",
             fuel_kg=9.2,
@@ -314,8 +506,8 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             fuel_advice_es="Combustible en positivo, más 1 con 2 vueltas de margen.",
             fuel_advice_en="Fuel is comfortable, plus 1 point 2 laps margin.",
             ers_pct=70,
-            ers_mode="medium",
-            ers_mode_es="medio",
+            ers_mode=demo_ers,
+            ers_mode_es=demo_ers_es,
             damage_summary_es="Monoplaza limpio, sin daños en alerones ni fondo plano.",
             damage_summary_en="Car is clean, no aero damage on wings or floor.",
             weather_now="light cloud",
@@ -338,8 +530,8 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             laps_until_caught_behind=99,
             pace_analysis_es="Vienes rodando dos décimas por vuelta más rápido que Norris delante y tres décimas más rápido que Sainz detrás. En dos o tres giros tendrás DRS con Norris.",
             pace_analysis_en="You are lapping two tenths faster than Norris ahead and pulling away from Sainz behind by three tenths per lap. You will have DRS on Norris in two or three laps.",
-            setup_advice_es="El tren delantero sufre algo más que el trasero. Pasa el reparto de frenada al 54 por ciento hacia atrás para ayudar a rotar el morro en el vértice.",
-            setup_advice_en="Front axle is working harder than the rear. Move brake bias rearward to 54 percent to help rotate the nose at the apex.",
+            setup_advice_es=f"Reparto de frenada al {demo_bb}% y diferencial al {ov.diff_pct}% en Spa. " + (ov.last_ai_action_es or "Si notas subviraje en Pouhon, atrasa un punto la frenada."),
+            setup_advice_en=f"Brake bias at {demo_bb}% and differential at {ov.diff_pct}% at Spa. " + (ov.last_ai_action_en or "If you feel understeer in Pouhon, move brake bias rearward."),
             teammate_name="Alonso",
             teammate_pos=8,
             teammate_gap="+16.4s",
@@ -348,10 +540,14 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             retired_names=[],
             plan_a_es="Plan A es quedarnos fuera hasta el final cuidando este medio al 33% y atacar a Norris con DRS en las últimas 3 vueltas.",
             plan_a_en="Plan A is staying out to the flag managing these 33% Mediums and attacking Norris with DRS in the final 3 laps.",
-            plan_b_es="Plan B es ataque total ya mismo: mapa de adelantamiento en ERS y mezcla rica para pasar a Norris antes de que se escape, asumiendo mayor degradación.",
-            plan_b_en="Plan B is full attack right now: Overtake ERS and rich fuel mix to jump Norris immediately, accepting higher tyre wear.",
-            plan_c_es="Plan C es conservar gomas haciendo lift and coast esperando ese 45% de lluvia o un Safety Car tardío para montar blandos o intermedios gratis.",
-            plan_c_en="Plan C is saving tyres with lift and coast, waiting on that 45% rain chance or a late Safety Car for a cheap stop onto Softs or Inters.",
+            plan_b_es="Plan B es ataque total y undercut en la vuelta 15: montar neumático blando y activar modo adelantamiento en ERS para pasar a Norris.",
+            plan_b_en="Plan B is full attack and undercut on lap 15: fit Soft tyres and deploy Overtake ERS to jump Norris.",
+            plan_c_es="Plan C es alargar el stint al máximo hasta la vuelta 17 haciendo lift and coast, esperando ese 45% de lluvia o un Safety Car para montar intermedios o duros.",
+            plan_c_en="Plan C is extending the stint to lap 17 with lift and coast, waiting on that 45% rain chance or a Safety Car for Inters or Hards.",
+            diff_pct=ov.diff_pct,
+            front_wing_delta=ov.front_wing_delta,
+            ai_auto_action_es=ov.last_ai_action_es,
+            ai_auto_action_en=ov.last_ai_action_en,
             full_briefing_es=(
                 "Vas cuarto en la vuelta 14 de 18, quedan 4 vueltas. Delante Norris a 1 con 4, "
                 "detrás Sainz a 2 con 1. Neumático medio al 33 por ciento, aguanta perfecto hasta el final."
@@ -437,8 +633,13 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         ers_mode = L.ERS_MODE.get(cs.ers_mode, "medium")
         brake_bias = cs.brake_bias
 
+    if ov.brake_bias_delta != 0:
+        brake_bias = max(50, min(65, brake_bias + ov.brake_bias_delta))
+    if ov.ers_mode_override:
+        ers_mode = ov.ers_mode_override
+
     comp_es = L.COMPOUNDS_ES.get(comp_name, comp_name.lower())
-    ers_mode_es = L.ERS_MODE_ES.get(ers_mode, ers_mode)
+    ers_mode_es = ov.ers_mode_override_es if ov.ers_mode_override_es else L.ERS_MODE_ES.get(ers_mode, ers_mode)
 
     max_tyre_temp = 94
     max_brake_temp = 560
@@ -482,6 +683,10 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
 
     ideal_lap = s.pit_window_ideal if s and s.pit_window_ideal > 0 else max(1, total_laps // 2 - 1)
     latest_lap = s.pit_window_latest if s and s.pit_window_latest > 0 else max(2, total_laps // 2 + 1)
+    if ov.pit_lap_override > 0:
+        ideal_lap = ov.pit_lap_override
+        latest_lap = min(total_laps, ov.pit_lap_override + 1)
+
     pit_loss_ms = 13000 if sc_status in (1, 2) else 21500
     after_pit_delta = my_delta_leader_ms + pit_loss_ms
 
@@ -497,7 +702,9 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         rejoin_pos = s.pit_rejoin_position
     rejoin_pos = min(rejoin_pos, len(standings))
 
-    if s and s.weather in (3, 4, 5) or (rain_pct >= 65 and rain_mins <= 5):
+    if ov.compound_override:
+        rec_comp = ov.compound_override
+    elif s and s.weather in (3, 4, 5) or (rain_pct >= 65 and rain_mins <= 5):
         rec_comp = "Intermediate"
     elif laps_rem <= 11:
         rec_comp = "Soft"
@@ -505,7 +712,7 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         rec_comp = "Medium"
     else:
         rec_comp = "Hard"
-    rec_comp_es = L.COMPOUNDS_ES.get(rec_comp, rec_comp.lower())
+    rec_comp_es = ov.compound_override_es if ov.compound_override_es else L.COMPOUNDS_ES.get(rec_comp, rec_comp.lower())
 
     max_wing = max(wing_fl, wing_fr, rear_w)
     my_pits = me_row["pits"] if me_row else 0
@@ -517,6 +724,8 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         box_rec = "BOX UNDER SAFETY CAR (FREE STOP)"
     elif rain_pct >= 55 and 0 < rain_mins <= 10 and comp_name not in ("Intermediate", "Wet"):
         box_rec = "HOLD OUT FOR RAIN"
+    elif ov.pit_lap_override > 0:
+        box_rec = f"PLAN {ov.active_plan} (Vuelta {ideal_lap} -> {rec_comp})"
     elif total_laps >= 8 and ideal_lap <= cur_lap <= latest_lap and my_pits == 0:
         box_rec = "PIT WINDOW OPEN"
     else:
@@ -943,6 +1152,10 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         positions_gained=gained,
         debrief_es=debrief_es,
         debrief_en=debrief_en,
+        diff_pct=ov.diff_pct,
+        front_wing_delta=ov.front_wing_delta,
+        ai_auto_action_es=ov.last_ai_action_es,
+        ai_auto_action_en=ov.last_ai_action_en,
         full_briefing_es=brief_es,
         full_briefing_en=brief_en,
     )
@@ -978,6 +1191,7 @@ class ProactiveSpotter:
 
     def reset(self, session_uid: int) -> None:
         self.last_session_uid = session_uid
+        LIVE_OVERRIDES.reset()
         self.last_lap = 0
         self.last_pos = 0
         self.warned_pit_open = False

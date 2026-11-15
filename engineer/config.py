@@ -39,10 +39,16 @@ class EngineerConfig:
     hud_custom_team: str = "Ferrari"      # Escuderia para el estilo visual cuando hud_identity_mode == "custom" o sin telemetria
     hud_custom_number: int = 16           # Dorsal personalizado (1-99)
     mfd_enabled: bool = True              # Permitir que el ingeniero pulse teclas MFD en el juego por voz
+    auto_mfd_ai: bool = True              # La IA reajusta automaticamente MFD (Frenada/Diferencial/ERS/Parada/Compuesto)
     mfd_box_key: str = "b"                # Tecla en F1 25 para Solicitar Parada en Boxes (Box This Lap)
     mfd_tyre_key: str = "t"               # Tecla en F1 25 para Cambiar Compuesto Siguiente en el MFD
-    mfd_brake_up_key: str = "page_up"     # Tecla para subir reparto de frenada
-    mfd_brake_down_key: str = "page_down" # Tecla para bajar reparto de frenada
+    mfd_brake_up_key: str = "page_up"     # Tecla para subir reparto de frenada (+ delante)
+    mfd_brake_down_key: str = "page_down" # Tecla para bajar reparto de frenada (- atras)
+    mfd_diff_up_key: str = "home"         # Tecla para subir diferencial en aceleracion
+    mfd_diff_down_key: str = "end"        # Tecla para bajar diferencial (mas traccion)
+    mfd_ers_key: str = "e"                # Tecla para cambiar modo de despliegue ERS / Overtake
+    mfd_wing_up_key: str = "insert"       # Tecla para subir angulo de aleron delantero en parada
+    mfd_wing_down_key: str = "delete"     # Tecla para bajar angulo de aleron delantero en parada
 
     @property
     def wake_word_list(self) -> list[str]:
