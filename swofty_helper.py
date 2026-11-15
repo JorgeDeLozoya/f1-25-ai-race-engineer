@@ -70,6 +70,33 @@ class SwoftyEngineerPlugin:
         self._last_log_len = 0
         self._last_pkt_bucket = -1
         self._last_game_running = False
+        self._manual_start = False
+
+    def _is_game_process_running(self) -> bool:
+        if os.name != "nt":
+            return False
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            found = False
+
+            def enum_cb(h, _):
+                nonlocal found
+                if user32.IsWindowVisible(h):
+                    length = user32.GetWindowTextLengthW(h)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(h, buff, length + 1)
+                        if any(k in buff.value for k in ("F1 25", "F1® 25", "F1 24", "F1® 24", "F1 26", "F1® 26")):
+                            found = True
+                            return False
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+            return found
+        except Exception:
+            return False
 
     @property
     def config_path(self) -> Path:
@@ -574,8 +601,10 @@ class SwoftyEngineerPlugin:
         click_id = event.get("click", {}).get("id")
         if click_id == "toggle_engineer":
             if self.app is not None:
+                self._manual_start = False
                 self.stop_engineer()
                 return {"notice": "AI Race Engineer detenido"}
+            self._manual_start = True
             self.start_engineer()
             return {"notice": "AI Race Engineer activo y escuchando por radio"}
 
@@ -606,6 +635,15 @@ class SwoftyEngineerPlugin:
             running = bool(gstatus.get("running"))
         except Exception:
             running = False
+
+        game_active = running or self._is_game_process_running()
+        if game_active and self.app is None and (self._hud_proc is None or self._hud_proc.poll() is not None):
+            log.info("F1 25 detectado en ejecucion: arrancando AI Race Engineer automaticamente.")
+            self.start_engineer()
+        elif not game_active and self.app is not None and not self._manual_start:
+            log.info("F1 25 cerrado: deteniendo AI Race Engineer.")
+            self.stop_engineer()
+
         cur_len = len(self.app.brain.dialogue_log) if self.app else 0
         pkt_bucket = (self.app.telemetry.state.packet_count // 30) if self.app else -1
         if running != self._last_game_running or cur_len != self._last_log_len or pkt_bucket != self._last_pkt_bucket:

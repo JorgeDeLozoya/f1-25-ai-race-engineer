@@ -134,17 +134,55 @@ class RadioHudOverlay:
             w.bind("<ButtonRelease-1>", self._on_drag_end)
 
     def _position_initial(self) -> None:
+        user32 = ctypes.windll.user32 if os.name == "nt" else None
+        found_rect = None
+        if user32:
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            def enum_cb(h, _):
+                nonlocal found_rect
+                if user32.IsWindowVisible(h):
+                    length = user32.GetWindowTextLengthW(h)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(h, buff, length + 1)
+                        if any(k in buff.value for k in ("F1 25", "F1® 25", "F1 24", "F1® 24", "F1 26", "F1® 26")):
+                            r = RECT()
+                            user32.GetWindowRect(h, ctypes.byref(r))
+                            found_rect = (r.left, r.top, r.right, r.bottom)
+                            return False
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+
         sw = self.win.winfo_screenwidth()
         sh = self.win.winfo_screenheight()
-        # Por defecto: borde derecho, justo debajo del cronometro superior derecho de F1 25
-        x = self.cfg.hud_x if self.cfg.hud_x >= 0 else max(20, sw - self.WIDTH - 28)
-        y = self.cfg.hud_y if self.cfg.hud_y >= 0 else max(40, int(sh * 0.23))
-        x = max(0, min(sw - self.WIDTH, x))
-        y = max(0, min(sh - 180, y))
+
+        if found_rect and (found_rect[2] - found_rect[0] > 600):
+            g_left, g_top, g_right, g_bottom = found_rect
+            # Si el HUD guardado cae fuera de la ventana del juego, colocar en la esquina superior derecha del juego
+            if (
+                self.cfg.hud_x < g_left
+                or self.cfg.hud_x > (g_right - self.WIDTH)
+                or self.cfg.hud_y < g_top
+                or self.cfg.hud_y > (g_bottom - 200)
+            ):
+                x = g_right - self.WIDTH - 30
+                y = g_top + int((g_bottom - g_top) * 0.16)
+            else:
+                x = self.cfg.hud_x
+                y = self.cfg.hud_y
+        else:
+            x = self.cfg.hud_x if (0 <= self.cfg.hud_x <= sw - self.WIDTH) else max(20, sw - self.WIDTH - 28)
+            y = self.cfg.hud_y if (0 <= self.cfg.hud_y <= sh - 200) else max(40, int(sh * 0.23))
+
         self.win.geometry(f"{self.WIDTH}x240+{x}+{y}")
 
     def _apply_win32_noactivate(self) -> None:
-        """Evita que el overlay robe el foco del volante/mando/teclado y lo vincula con la ventana de F1 25."""
+        """Evita que el overlay robe el foco del juego y lo mantiene siempre en el Z-order superior (Topmost)."""
         if os.name != "nt":
             return
         try:
@@ -158,31 +196,8 @@ class RadioHudOverlay:
             user32.SetWindowLongW(
                 hwnd, GWL_EXSTYLE, style | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
             )
-
-            # Buscar la ventana del juego F1 para declararnos como propiedad de su ventana
-            found_game_hwnd = None
-
-            def enum_cb(h, _):
-                nonlocal found_game_hwnd
-                if user32.IsWindowVisible(h):
-                    length = user32.GetWindowTextLengthW(h)
-                    if length > 0:
-                        buff = ctypes.create_unicode_buffer(length + 1)
-                        user32.GetWindowTextW(h, buff, length + 1)
-                        title = buff.value
-                        if any(k in title for k in ("F1 25", "F1® 25", "F1 24", "F1® 24", "F1 26", "F1® 26")):
-                            found_game_hwnd = h
-                            return False
-                return True
-
-            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-            if found_game_hwnd and found_game_hwnd != hwnd:
-                # GWLP_HWNDPARENT = -8: vincula la ventana al Z-order del juego
-                if hasattr(user32, "SetWindowLongPtrW"):
-                    user32.SetWindowLongPtrW(hwnd, -8, found_game_hwnd)
-                else:
-                    user32.SetWindowLongW(hwnd, -8, found_game_hwnd)
+            # HWND_TOPMOST = -1, SWP_NOSIZE(1) | SWP_NOMOVE(2) | SWP_NOACTIVATE(0x0010)
+            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0013)
         except Exception:
             pass
 
@@ -234,6 +249,10 @@ class RadioHudOverlay:
             try:
                 self.win.lift()
                 self.win.attributes("-topmost", True)
+                if os.name == "nt":
+                    user32 = ctypes.windll.user32
+                    hwnd = user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
+                    user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0053)
             except Exception:
                 pass
             now = time.time()

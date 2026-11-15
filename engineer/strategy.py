@@ -752,19 +752,25 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         box_rec = f"PLAN {ov.active_plan} (Vuelta {ideal_lap} -> {rec_comp})"
     elif total_laps >= 8 and ideal_lap <= cur_lap <= latest_lap and my_pits == 0:
         box_rec = "PIT WINDOW OPEN"
+    elif total_laps <= 7:
+        box_rec = "STAY OUT (SPRINT / NO STOPS)"
     else:
         box_rec = "STAY OUT"
 
-    rejoin_es = (
-        f"Si entras a boxes en esta vuelta saldrías en la posición {rejoin_pos}"
-        + (f" detrás de {car_ahead_on_rejoin}" if car_ahead_on_rejoin else " con aire limpio")
-        + f", montando goma {rec_comp_es}."
-    )
-    rejoin_en = (
-        f"If we box this lap we rejoin in P{rejoin_pos}"
-        + (f" behind {car_ahead_on_rejoin}" if car_ahead_on_rejoin else " in clean air")
-        + f", fitting the {rec_comp} tyre."
-    )
+    if total_laps <= 7:
+        rejoin_es = f"Carrera al sprint a {total_laps} vueltas sin paradas en boxes. Quédate en pista hasta meta."
+        rejoin_en = f"{total_laps}-lap sprint race with no pit stops. Stay out to the finish line."
+    else:
+        rejoin_es = (
+            f"Si entras a boxes en esta vuelta saldrías en la posición {rejoin_pos}"
+            + (f" detrás de {car_ahead_on_rejoin}" if car_ahead_on_rejoin else " con aire limpio")
+            + f", montando goma {rec_comp_es}."
+        )
+        rejoin_en = (
+            f"If we box this lap we rejoin in P{rejoin_pos}"
+            + (f" behind {car_ahead_on_rejoin}" if car_ahead_on_rejoin else " in clean air")
+            + f", fitting the {rec_comp} tyre."
+        )
 
     if ahead_row and 0.8 <= ahead_gap_s <= 3.2:
         undercut_es = (
@@ -940,7 +946,26 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
     )
 
     # Planes tacticos A, B y C dinamicos segun estado real de carrera
-    if laps_rem <= 6 and max_wear < 62.0:
+    if total_laps <= 7:
+        plan_a_es = (
+            f"Plan A es carrera corta al sprint a {total_laps} vueltas sin paradas: ir a fondo hasta la meta con {comp_es} al {max_wear:.0f}%, cuidando tracción para defender el P{pos}."
+        )
+        plan_a_en = (
+            f"Plan A is a {total_laps}-lap sprint with no pit stops: flat out to the line on {max_wear:.0f}% {comp_name}s, managing traction to hold P{pos}."
+        )
+        plan_b_es = (
+            f"Plan B es ataque total en cada vuelta: desplegar el {ers_pct}% de batería en modo Overtake en las rectas para adelantar a {ahead_row['name'] if ahead_row else 'los rivales'}."
+        )
+        plan_b_en = (
+            f"Plan B is full sprint attack: deploy your {ers_pct}% ERS in Overtake mode down the straights to hunt down {ahead_row['name'] if ahead_row else 'the cars ahead'}."
+        )
+        plan_c_es = (
+            f"Plan C es rodar a rebufo de {ahead_row['name'] if ahead_row else 'los rivales'} para ahorrar neumático y batería, preparando un ataque con DRS en la última vuelta."
+        )
+        plan_c_en = (
+            f"Plan C is harvesting energy in the slipstream to launch a decisive last-lap DRS dive on {ahead_row['name'] if ahead_row else 'the cars ahead'}."
+        )
+    elif laps_rem <= 6 and max_wear < 62.0:
         plan_a_es = (
             f"Plan A es ir hasta el final sin parar con este {comp_es} al {max_wear:.0f}%, gestionando tracción para defender el P{pos}."
         )
@@ -952,6 +977,14 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         )
         plan_b_en = (
             f"Plan B is full sprint attack: deploy your {ers_pct}% battery in Overtake mode to hunt down {ahead_row['name'] if ahead_row else 'the leader'} over the final {laps_rem} laps."
+        )
+        plan_c_es = (
+            f"Plan C es alargar el stint al máximo cuidando las gomas ({est_tyre_laps_left} vueltas de vida), buscando un overcut o esperando un Safety Car"
+            + (f" o ese {rain_pct}% de lluvia prevista." if rain_pct >= 20 else " para tener parada gratis.")
+        )
+        plan_c_en = (
+            f"Plan C is extending this stint to the limit ({est_tyre_laps_left} laps of tyre life), going for an overcut or waiting on a Safety Car"
+            + (f" or that {rain_pct}% rain chance." if rain_pct >= 20 else " for a cheap pit stop.")
         )
     else:
         plan_a_es = (
@@ -967,15 +1000,14 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         plan_b_en = (
             f"Plan B is the aggressive undercut: box early on lap {undercut_lap} for fresh rubber and use clean air to jump {ahead_row['name'] if ahead_row else 'the cars ahead'}."
         )
-
-    plan_c_es = (
-        f"Plan C es alargar el stint al máximo cuidando las gomas ({est_tyre_laps_left} vueltas de vida), buscando un overcut o esperando un Safety Car"
-        + (f" o ese {rain_pct}% de lluvia prevista." if rain_pct >= 20 else " para tener parada gratis.")
-    )
-    plan_c_en = (
-        f"Plan C is extending this stint to the limit ({est_tyre_laps_left} laps of tyre life), going for an overcut or waiting on a Safety Car"
-        + (f" or that {rain_pct}% rain chance." if rain_pct >= 20 else " for a cheap pit stop.")
-    )
+        plan_c_es = (
+            f"Plan C es alargar el stint al máximo cuidando las gomas ({est_tyre_laps_left} vueltas de vida), buscando un overcut o esperando un Safety Car"
+            + (f" o ese {rain_pct}% de lluvia prevista." if rain_pct >= 20 else " para tener parada gratis.")
+        )
+        plan_c_en = (
+            f"Plan C is extending this stint to the limit ({est_tyre_laps_left} laps of tyre life), going for an overcut or waiting on a Safety Car"
+            + (f" or that {rain_pct}% rain chance." if rain_pct >= 20 else " for a cheap pit stop.")
+        )
 
     # 1. Comparativa de parciales S1, S2 y S3 contra el coche de delante (o P2 si eres lider)
     ref_sector_row = ahead_row or behind_row

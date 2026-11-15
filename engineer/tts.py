@@ -23,6 +23,61 @@ _POS_ES = {
     "6": "sexto", "7": "séptimo", "8": "octavo", "9": "noveno", "10": "décimo",
 }
 
+# Pronunciaciones fonéticas naturales para el motor de voz neural en español (Álvaro / Elvira)
+_DRIVER_PHONETICS_ES = [
+    (r"\bRussell\b", "Rásel"),
+    (r"\bRUSSELL\b", "Rásel"),
+    (r"\bLeclerc\b", "Leclér"),
+    (r"\bLECLERC\b", "Leclér"),
+    (r"\bVerstappen\b", "Verstápen"),
+    (r"\bVERSTAPPEN\b", "Verstápen"),
+    (r"\bHamilton\b", "Jámilton"),
+    (r"\bHAMILTON\b", "Jámilton"),
+    (r"\bHulkenberg\b", "Júlkenberg"),
+    (r"\bHülkenberg\b", "Júlkenberg"),
+    (r"\bHULKENBERG\b", "Júlkenberg"),
+    (r"\bRicciardo\b", "Rikiardo"),
+    (r"\bRICCIARDO\b", "Rikiardo"),
+    (r"\bDoohan\b", "Dújan"),
+    (r"\bDOOHAN\b", "Dújan"),
+    (r"\bLawson\b", "Lóson"),
+    (r"\bLAWSON\b", "Lóson"),
+    (r"\bAntonelli\b", "Antoneli"),
+    (r"\bANTONELLI\b", "Antoneli"),
+    (r"\bHadjar\b", "Jádjar"),
+    (r"\bHADJAR\b", "Jádjar"),
+    (r"\bBearman\b", "Béarman"),
+    (r"\bBEARMAN\b", "Béarman"),
+    (r"\bTsunoda\b", "Zunoda"),
+    (r"\bTSUNODA\b", "Zunoda"),
+    (r"\bOcon\b", "Ocón"),
+    (r"\bOCON\b", "Ocón"),
+    (r"\bGasly\b", "Gaslí"),
+    (r"\bGASLY\b", "Gaslí"),
+    (r"\bPiastri\b", "Piástri"),
+    (r"\bPIASTRI\b", "Piástri"),
+    (r"\bBottas\b", "Bótas"),
+    (r"\bBOTTAS\b", "Bótas"),
+    (r"\bStroll\b", "Strol"),
+    (r"\bSTROLL\b", "Strol"),
+    (r"\bAlbon\b", "Albón"),
+    (r"\bALBON\b", "Albón"),
+    (r"\bMagnussen\b", "Mágnusen"),
+    (r"\bMAGNUSSEN\b", "Mágnusen"),
+    (r"\bBortoleto\b", "Bortoléto"),
+    (r"\bBORTOLETO\b", "Bortoléto"),
+    (r"\bSauber\b", "Sáuber"),
+    (r"\bSAUBER\b", "Sáuber"),
+    (r"\bAlpine\b", "Alpín"),
+    (r"\bALPINE\b", "Alpín"),
+    (r"\bMcLaren\b", "Maclaren"),
+    (r"\bMCLAREN\b", "Maclaren"),
+    (r"\bHaas\b", "Jas"),
+    (r"\bHAAS\b", "Jas"),
+    (r"\bRed Bull\b", "Red Bul"),
+    (r"\bWilliams\b", "Uíliams"),
+]
+
 
 def naturalize_for_speech(text: str, lang: str) -> str:
     """Adapta abreviaturas y numeros de telemetria para que el TTS hable fluido como en F1."""
@@ -74,13 +129,13 @@ def naturalize_for_speech(text: str, lang: str) -> str:
         s = re.sub(r"\+(\d+)\.(\d+)s\b", r"\1 con \2 segundos", s)
         s = re.sub(r"\b(\d+)\.(\d+)s\b", r"\1 con \2 segundos", s)
 
-        s = re.sub(
-            r"\bP(\d{1,2})\b",
-            lambda m: _POS_ES.get(m.group(1), f"posición {m.group(1)}"),
-            s,
-        )
+        s = re.sub(r"\bP(\d{1,2})\b", lambda m: _POS_ES.get(m.group(1), f"posición {m.group(1)}"), s)
         s = re.sub(r"\bV(\d{1,2})\b", r"vuelta \1", s)
         s = re.sub(r"\b(\d+)%\b", r"\1 por ciento", s)
+
+        # 5. Correcciones fonéticas de nombres propios para que Álvaro suene natural
+        for pattern, replacement in _DRIVER_PHONETICS_ES:
+            s = re.sub(pattern, replacement, s)
 
     s = re.sub(r"\s+,", ",", s)
     s = re.sub(r",\s*,", ",", s)
