@@ -27,6 +27,11 @@ class EngineerConfig:
     voice_en: str = "en-GB-RyanNeural"
     voice_rate: str = "+25%"              # Ritmo agil y natural de ingeniero de muro de boxes
     radio_effect: float = 0.85            # 0.0 (limpio) a 1.0 (efecto radio F1 completo)
+    radio_beep_enabled: bool = True       # Activar o desactivar el pitido de apertura/cierre de radio F1 TV
+    radio_beep_style: str = "f1_tv"       # "f1_tv" (Doble Beep F1 TV), "fia_pitwall" (Chirp FIA), "classic_v10" (Walkie Clasico), "off"
+    radio_bg_enabled: bool = True         # Activar o desactivar sonido de fondo en la radio del ingeniero
+    radio_bg_style: str = "pitwall_f1_flyby"  # "pitwall_f1_flyby" (F1 pasando por recta + muro), "pit_garage_guns" (Garaje + pistolas box), "pitwall_telemetry" (Solo muro sutil), "off"
+    radio_bg_level: float = 0.65          # Nivel del sonido de fondo (0.0 a 1.0)
     volume: float = 1.0                   # Volumen de salida (0.1 a 1.5)
     proactive_callouts: bool = True       # Avisar automaticamente de Safety Car, penalizaciones, etc.
     mic_device: int | None = None         # None = microfono por defecto del sistema

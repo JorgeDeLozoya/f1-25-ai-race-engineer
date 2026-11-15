@@ -9,6 +9,7 @@ import time
 import tkinter as tk
 
 from .app import RaceEngineerApp
+from .radio_fx import play_ack_beep, play_close_beep
 from .strategy import analyze_strategy
 from .telemetry import lookups as L
 
@@ -61,6 +62,7 @@ class RadioHudOverlay:
         self._last_seen_dialogue_len = -1
         self._last_partial_text = ""
         self._was_speaking = False
+        self._last_hud_beep_ts = 0.0
 
         # Identidad visual activa (se actualiza sola con la telemetria del coche que conduzcas)
         self._drv_name = self.cfg.driver_name.upper()
@@ -207,6 +209,19 @@ class RadioHudOverlay:
                 self.win.attributes("-topmost", True)
             except Exception:
                 pass
+            now = time.time()
+            if (
+                getattr(self.cfg, "radio_beep_enabled", True)
+                and getattr(self.cfg, "radio_beep_style", "f1_tv") != "off"
+                and not self.app.speaker.is_speaking
+                and (now - self._last_hud_beep_ts > 1.8)
+            ):
+                self._last_hud_beep_ts = now
+                play_ack_beep(
+                    self.cfg.radio_effect,
+                    self.cfg.volume,
+                    style=getattr(self.cfg, "radio_beep_style", "f1_tv"),
+                )
         self._current_alpha = max(0.45, min(1.0, float(getattr(self.cfg, "hud_opacity", 0.94))))
         try:
             self.win.attributes("-alpha", self._current_alpha)
@@ -217,6 +232,19 @@ class RadioHudOverlay:
         if self._visible:
             self._visible = False
             self.win.withdraw()
+            now = time.time()
+            if (
+                getattr(self.cfg, "radio_beep_enabled", True)
+                and getattr(self.cfg, "radio_beep_style", "f1_tv") != "off"
+                and not self.app.speaker.is_speaking
+                and (now - self._last_hud_beep_ts > 1.2)
+            ):
+                self._last_hud_beep_ts = now
+                play_close_beep(
+                    self.cfg.radio_effect,
+                    self.cfg.volume,
+                    style=getattr(self.cfg, "radio_beep_style", "f1_tv"),
+                )
 
     def _sync_geometry_height(self) -> None:
         """Ajusta dinamicamente la altura de la tarjeta F1 TV al texto actual sin cortar frases."""
