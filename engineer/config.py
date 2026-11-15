@@ -29,6 +29,10 @@ class EngineerConfig:
     volume: float = 1.0                   # Volumen de salida (0.1 a 1.5)
     proactive_callouts: bool = True       # Avisar automaticamente de Safety Car, penalizaciones, etc.
     mic_device: int | None = None         # None = microfono por defecto del sistema
+    hud_mode: str = "auto"                # "auto" (Sale al hablar/recibir radio), "always" (Siempre fijo en el HUD), "off" (Oculto)
+    hud_x: int = -1                       # Coordenada X en pantalla (-1 = automatico a la derecha del HUD de F1 25)
+    hud_y: int = -1                       # Coordenada Y en pantalla (-1 = automatico debajo del crono de F1 25)
+    hud_hold_seconds: float = 6.5         # Segundos que permanece visible tras terminar de hablar el ingeniero
 
     @property
     def wake_word_list(self) -> list[str]:

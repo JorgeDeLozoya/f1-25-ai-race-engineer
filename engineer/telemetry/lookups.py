@@ -212,6 +212,104 @@ CLASSIC_DRIVER_TEAMS = {
     "DI GRASSI": "Virgin Racing",
 }
 
+# Colores oficiales de retransmision F1 TV (color principal brillante sobre fondo oscuro + codigo de emblema)
+TEAM_STYLES: dict[str, tuple[str, str]] = {
+    "Ferrari": ("#FF1E27", "FER"),
+    "McLaren": ("#FF8000", "MCL"),
+    "Mercedes": ("#27F4D2", "MER"),
+    "Red Bull": ("#4781D7", "RBR"),
+    "Aston Martin": ("#00E7A7", "AMR"),
+    "Williams": ("#64C4FF", "WIL"),
+    "Alpine": ("#00A8FF", "ALP"),
+    "Racing Bulls": ("#6692FF", "RB"),
+    "Toro Rosso": ("#5B8CFF", "STR"),
+    "Haas": ("#F03A47", "HAAS"),
+    "Sauber": ("#52E252", "KICK"),
+    "Audi / Sauber": ("#52E252", "KICK"),
+    "HRT (Hispania)": ("#E5B842", "HRT"),
+    "Renault": ("#FFD800", "REN"),
+    "Force India": ("#FF851B", "FI"),
+    "Lotus Racing": ("#19C37D", "LOT"),
+    "Virgin Racing": ("#FF3333", "VRG"),
+    "Cadillac": ("#E5B842", "CAD"),
+    "APXGP": ("#D4AF37", "APX"),
+    "Konnersport": ("#A3E635", "KON"),
+}
+
+DRIVER_NUMBERS: dict[str, int] = {
+    "VERSTAPPEN": 1,
+    "LECLERC": 16,
+    "NORRIS": 4,
+    "PIASTRI": 81,
+    "HAMILTON": 44,
+    "RUSSELL": 63,
+    "SAINZ": 55,
+    "ALONSO": 14,
+    "STROLL": 18,
+    "ALBON": 23,
+    "GASLY": 10,
+    "OCON": 31,
+    "HÜLKENBERG": 27,
+    "HULKENBERG": 27,
+    "TSUNODA": 22,
+    "LAWSON": 30,
+    "BEARMAN": 87,
+    "ANTONELLI": 12,
+    "BORTOLETO": 5,
+    "HADJAR": 6,
+    "DOOHAN": 7,
+    "COLAPINTO": 43,
+    "PEREZ": 11,
+    "BOTTAS": 77,
+    "MAGNUSSEN": 20,
+    # Temporada 2010 / Swofty
+    "SENNA": 7,
+    "CHANDHOK": 20,
+    "VETTEL": 5,
+    "WEBBER": 6,
+    "MASSA": 7,
+    "BUTTON": 1,
+    "SCHUMACHER": 3,
+    "ROSBERG": 4,
+    "KUBICA": 11,
+    "PETROV": 12,
+    "BARRICHELLO": 9,
+    "SUTIL": 14,
+    "LIUZZI": 15,
+    "BUEMI": 16,
+    "ALGUERSUARI": 17,
+    "TRULLI": 18,
+    "KOVALAINEN": 19,
+    "DE LA ROSA": 22,
+    "KOBAYASHI": 23,
+    "GLOCK": 24,
+    "DI GRASSI": 25,
+}
+
+
+def resolve_radio_identity(
+    player_driver: str,
+    player_team: str,
+    fallback_driver: str = "JORGE",
+    race_number: int = 0,
+) -> tuple[str, str, str, int]:
+    """Devuelve (display_driver_name, team_color_hex, badge_code, race_number) para el HUD F1 TV."""
+    drv_clean = (player_driver or "").strip().upper()
+    if not drv_clean or drv_clean.startswith("CAR #") or drv_clean in ("PLAYER", "JUGADOR", "UNKNOWN"):
+        drv_display = (fallback_driver or "JORGE").strip().upper()
+    else:
+        # Quitar prefijos y quedarse con el apellido como en F1 TV ("LECLERC", "SENNA", "ALONSO")
+        parts = drv_clean.split()
+        drv_display = parts[-1] if len(parts) == 1 or parts[0] not in ("DE",) else drv_clean
+
+    team_clean = (player_team or "").strip()
+    if team_clean not in TEAM_STYLES and drv_display in CLASSIC_DRIVER_TEAMS:
+        team_clean = CLASSIC_DRIVER_TEAMS[drv_display]
+
+    color_hex, badge_code = TEAM_STYLES.get(team_clean, ("#FF1E27", "F1"))
+    num = race_number if race_number and 0 < race_number < 100 else DRIVER_NUMBERS.get(drv_display, 16)
+    return drv_display, color_hex, badge_code, num
+
 COMPOUNDS = {16: "Soft", 17: "Medium", 18: "Hard", 7: "Intermediate", 8: "Wet",
              15: "Wet", 19: "Super Soft", 20: "Soft", 21: "Hard", 22: "Wet"}
 
