@@ -40,6 +40,9 @@ def ensure_vosk_model(lang: str) -> Path:
     target = MODELS_DIR / folder_name
     if target.exists():
         return target
+    shared_cache = Path(r"c:\Users\Jorge\.gemini\antigravity\scratch\f1_mods\ai_race_engineer\models") / folder_name
+    if shared_cache.exists():
+        return shared_cache
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = MODELS_DIR / f"{folder_name}.zip"
     log.info("Descargando modelo de voz offline (%s) desde %s ...", lang.upper(), url)

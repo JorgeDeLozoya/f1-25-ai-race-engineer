@@ -1,12 +1,12 @@
-"""Plugin de Swofty Launcher (JSON-RPC sobre stdin/stdout) para AI Race Engineer."""
+"""Plugin oficial de Swofty Launcher (JSON-RPC sobre stdin/stdout) para AI Race Engineer."""
 from __future__ import annotations
 
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 # Preservar el descriptor real de stdout solo para JSON-RPC y desviar cualquier otro print a stderr
@@ -21,8 +21,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("swofty-helper")
 
-from engineer.app import RaceEngineerApp  # noqa: E402
+from engineer.app import RaceEngineerApp, ensure_single_instance  # noqa: E402
 from engineer.config import EngineerConfig  # noqa: E402
+from engineer.strategy import analyze_strategy  # noqa: E402
+from engineer.telemetry.context import build_standings  # noqa: E402
 
 API_VERSION = 1
 
@@ -60,10 +62,12 @@ class SwoftyEngineerPlugin:
         self.data_dir = Path(__file__).resolve().parent
         self.cache_dir = Path(__file__).resolve().parent / "cache"
         self.vanilla = False
-        self.tab = "settings"
+        self.tab = "pitwall"
         self.cfg = EngineerConfig.load(self.config_path)
         self.app: RaceEngineerApp | None = None
+        self._hud_proc: subprocess.Popen | None = None
         self._last_log_len = 0
+        self._last_pkt_bucket = -1
         self._last_game_running = False
 
     @property
@@ -76,7 +80,9 @@ class SwoftyEngineerPlugin:
     def start_engineer(self) -> None:
         if self.app is not None:
             return
+        ensure_single_instance()
         self.cfg = EngineerConfig.load(self.config_path)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.app = RaceEngineerApp(
             self.cfg,
             status_file=self.cache_dir / "runtime_status.json",
@@ -98,6 +104,16 @@ class SwoftyEngineerPlugin:
         if was_running:
             self.start_engineer()
 
+    def open_hud_window(self) -> None:
+        """Cierra el motor en segundo plano del helper y abre la ventana HUD completa."""
+        self.stop_engineer()
+        root_dir = Path(__file__).resolve().parent
+        pyw = root_dir / ".venv" / "Scripts" / "pythonw.exe"
+        if not pyw.exists():
+            pyw = Path(r"c:\Users\Jorge\.gemini\antigravity\scratch\f1_mods\ai_race_engineer\.venv\Scripts\pythonw.exe")
+        exe = str(pyw) if pyw.exists() else sys.executable
+        self._hud_proc = subprocess.Popen([exe, "-m", "engineer", "--gui"], cwd=str(root_dir))
+
     def build_view(self) -> dict:
         self.cfg = EngineerConfig.load(self.config_path)
         try:
@@ -107,65 +123,91 @@ class SwoftyEngineerPlugin:
         game_running = bool(gstatus.get("running"))
         self._last_game_running = game_running
 
-        eng_running = self.app is not None
-        udp_ok = bool(self.app and self.app.telemetry.state.connected)
+        hud_alive = bool(self._hud_proc and self._hud_proc.poll() is None)
+        eng_running = (self.app is not None) or hud_alive
+        st = self.app.telemetry.state if self.app else None
+        udp_ok = bool(st and st.connected)
+        rep = analyze_strategy(st, self.cfg.driver_name) if st else None
         has_key = bool(self.cfg.resolved_api_key())
         dialogue = list(self.app.brain.dialogue_log) if self.app else []
         self._last_log_len = len(dialogue)
 
+        mode_names = {
+            "wake_word": 'Palabra Clave ("Ingeniero" + F9)',
+            "always_on": "Siempre Escuchando (Directo)",
+            "ptt_only": f"Solo Push-To-Talk ({self.cfg.ptt_key.upper()})",
+        }
+
         pills = [
             {
-                "text": "ENGINEER LIVE (Voice Active)" if eng_running else "Engineer Stopped",
+                "text": (
+                    "HUD WINDOW ACTIVE"
+                    if hud_alive
+                    else ("ENGINEER LIVE (Voice Active)" if eng_running else "Engineer Stopped")
+                ),
                 "tone": "good" if eng_running else "muted",
                 "dot": True,
             },
             {
-                "text": "UDP 20777 Connected" if udp_ok else f"Waiting UDP :{self.cfg.udp_port}",
+                "text": (
+                    f"F1 25 Connected · {rep.track_name}"
+                    if (udp_ok and rep)
+                    else f"Waiting UDP :{self.cfg.udp_port}"
+                ),
                 "tone": "good" if udp_ok else "warn",
                 "dot": True,
             },
             {
-                "text": "Gemini AI Active" if has_key else "Local Tactical Brain (No API Key)",
-                "tone": "accent" if has_key else "warn",
+                "text": "Idioma: ESPAÑOL" if self.cfg.language != "en" else "Language: ENGLISH",
+                "tone": "accent",
+            },
+            {
+                "text": "Gemini AI Active" if has_key else "Motor Estratégico Local",
+                "tone": "good" if has_key else "accent",
             },
         ]
 
         hero = {
             "hero": {
-                "title": f"AI Race Engineer · {self.cfg.engineer_name}",
+                "title": f"F1 25/26 AI Race Engineer · {self.cfg.engineer_name}",
                 "subtitle": (
-                    f"Driver: {self.cfg.driver_name} · Lang: {self.cfg.language.upper()} · "
-                    f"Wake words: {self.cfg.wake_words}"
+                    f"Piloto: {self.cfg.driver_name} · Modo de voz: {mode_names.get(self.cfg.voice_mode, self.cfg.voice_mode)}"
                 ),
                 "art": {"monogram": "RE"},
                 "pills": pills,
                 "facts": [
-                    {"label": "UDP Port", "value": str(self.cfg.udp_port)},
-                    {"label": "PTT Key", "value": self.cfg.ptt_key.upper()},
-                    {"label": "Voices", "value": f"{self.cfg.voice_es} / {self.cfg.voice_en}"},
+                    {"label": "Puerto UDP", "value": str(self.cfg.udp_port)},
+                    {"label": "Tecla PTT", "value": self.cfg.ptt_key.upper()},
+                    {"label": "Palabra Clave", "value": '"Ingeniero" / "Marc"'},
                 ],
                 "buttons": [
                     {
                         "id": "toggle_engineer",
-                        "label": "Stop Engineer" if eng_running else "Start Engineer",
+                        "label": "Detener Ingeniero" if eng_running else "Activar Ingeniero",
                         "icon": "trash" if eng_running else "play",
                         "style": "danger" if eng_running else "primary",
                     },
                     {
-                        "id": "test_es",
-                        "label": "Test Radio (ES Top 5)",
+                        "id": "open_hud",
+                        "label": "Abrir Ventana Pit Wall HUD",
+                        "icon": "activity",
+                        "style": "primary" if not hud_alive else "outline",
+                    },
+                    {
+                        "id": "test_pos",
+                        "label": "Probar: ¿Posición y Coche?",
                         "icon": "zap",
                         "style": "outline",
                     },
                     {
-                        "id": "test_en",
-                        "label": "Test Radio (EN Top 5)",
+                        "id": "test_strat",
+                        "label": "Probar: ¿Estrategia Boxes?",
                         "icon": "zap",
                         "style": "outline",
                     },
                     {
-                        "id": "test_offtopic",
-                        "label": "Test Off-Topic",
+                        "id": "test_rude",
+                        "label": "Probar: Ser Borde",
                         "icon": "circle-alert",
                         "style": "ghost",
                     },
@@ -178,20 +220,87 @@ class SwoftyEngineerPlugin:
                 "id": "main_tabs",
                 "active": self.tab,
                 "items": [
-                    {"id": "settings", "label": "Engineer Settings", "icon": "settings"},
+                    {"id": "pitwall", "label": "Muro de Boxes y Clasificación", "icon": "activity"},
                     {
                         "id": "radio_log",
-                        "label": "Live Team Radio Log",
+                        "label": "Historial de Radio",
                         "icon": "activity",
                         "badge": str(len(dialogue)),
                     },
+                    {"id": "settings", "label": "Ajustes del Ingeniero", "icon": "settings"},
                 ],
             }
         }
 
         blocks = [hero, tabs]
 
-        if self.tab == "radio_log":
+        if self.tab == "pitwall":
+            standings = build_standings(st, limit=24) if (st and st.connected) else []
+            if rep:
+                blocks.append({
+                    "card": {
+                        "title": f"Estrategia en Vivo · {rep.player_driver} ({rep.player_team})",
+                        "subtitle": f"Circuito: {rep.track_name} · Vuelta {rep.current_lap}/{rep.total_laps} · Posición P{rep.position}/{rep.total_cars}",
+                        "blocks": [
+                            {
+                                "table": {
+                                    "id": "strat_summary",
+                                    "columns": [
+                                        {"key": "metric", "title": "Parámetro", "width": 190},
+                                        {"key": "val", "title": "Estado en Telemetría"},
+                                    ],
+                                    "rows": [
+                                        {"id": "s1", "cells": [{"text": "Recomendación Muro", "tone": "muted"}, {"text": rep.box_recommendation, "pill": True, "tone": "good" if rep.box_recommendation == "STAY OUT" else "warn"}]},
+                                        {"id": "s2", "cells": [{"text": "Referencias en Pista", "tone": "muted"}, {"text": f"Delante: {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) | Detrás: {rep.behind_name} (-{rep.behind_gap_s:.1f}s)"}]},
+                                        {"id": "s3", "cells": [{"text": "Neumáticos y Desgaste", "tone": "muted"}, {"text": f"{rep.current_tyre} ({rep.tyre_age} vueltas) · Máx {rep.max_wear_pct:.0f}% ({rep.worst_wheel}) · ~{rep.est_tyre_laps_left} vueltas buenas"}]},
+                                        {"id": "s4", "cells": [{"text": "Ventana de Parada", "tone": "muted"}, {"text": f"Vuelta {rep.pit_window_ideal}-{rep.pit_window_latest} -> Salida prevista P{rep.predicted_rejoin_pos} ({rep.recommended_compound})"}]},
+                                        {"id": "s5", "cells": [{"text": "Ritmo Comparativo", "tone": "muted"}, {"text": rep.pace_analysis_es}]},
+                                        {"id": "s6", "cells": [{"text": "Consejo de Reglajes", "tone": "muted"}, {"text": rep.setup_advice_es}]},
+                                    ],
+                                    "compact": True,
+                                }
+                            }
+                        ],
+                    }
+                })
+            if standings:
+                s_rows = []
+                for r in standings:
+                    s_rows.append({
+                        "id": f"car_{r['pos']}",
+                        "cells": [
+                            {"text": f"P{r['pos']}", "pill": True, "tone": "accent" if r["is_player"] else "muted"},
+                            {"text": f"{r['name']} {'(TÚ)' if r['is_player'] else ''}", "tone": "good" if r["is_player"] else "default"},
+                            {"text": r["team"], "tone": "muted"},
+                            {"text": r["gap_leader"]},
+                            {"text": r["tyre"]},
+                            {"text": r["last_lap"], "tone": "muted"},
+                        ],
+                    })
+                blocks.append({
+                    "card": {
+                        "title": f"Clasificación en Tiempo Real ({len(standings)} coches)",
+                        "subtitle": "Parrilla completa decodificada por UDP (20/22/24 coches)",
+                        "blocks": [
+                            {
+                                "table": {
+                                    "id": "live_standings",
+                                    "columns": [
+                                        {"key": "pos", "title": "Pos", "width": 65},
+                                        {"key": "drv", "title": "Piloto"},
+                                        {"key": "team", "title": "Escudería"},
+                                        {"key": "gap", "title": "Gap Líder", "width": 95},
+                                        {"key": "tyre", "title": "Goma", "width": 115},
+                                        {"key": "lap", "title": "Última Vuelta", "width": 110},
+                                    ],
+                                    "rows": s_rows,
+                                    "compact": True,
+                                }
+                            }
+                        ],
+                    }
+                })
+        elif self.tab == "radio_log":
             rows = []
             for i, entry in enumerate(dialogue):
                 rows.append({
@@ -205,17 +314,17 @@ class SwoftyEngineerPlugin:
                 })
             blocks.append({
                 "card": {
-                    "title": "Team Radio Transcript",
-                    "subtitle": "Say 'Radio, ¿cuáles son las 5 primeras posiciones?' or 'Engineer, what are the top 5?'",
+                    "title": "Historial de Radio en Vivo (Piloto ⇄ Ingeniero)",
+                    "subtitle": 'Di "Ingeniero, ¿en qué posición voy?" o "¿En cuántas vueltas pillo al de delante?"',
                     "blocks": [
                         {
                             "table": {
                                 "id": "transcript",
                                 "columns": [
-                                    {"key": "time", "title": "Time", "width": 85},
-                                    {"key": "lang", "title": "Lang", "width": 65},
-                                    {"key": "driver", "title": "Driver (You)"},
-                                    {"key": "engineer", "title": f"Engineer ({self.cfg.engineer_name})"},
+                                    {"key": "time", "title": "Hora", "width": 85},
+                                    {"key": "lang", "title": "Idioma", "width": 65},
+                                    {"key": "driver", "title": "Piloto"},
+                                    {"key": "engineer", "title": f"Ingeniero ({self.cfg.engineer_name})"},
                                 ],
                                 "rows": rows,
                                 "compact": True,
@@ -227,31 +336,32 @@ class SwoftyEngineerPlugin:
         else:
             fields = [
                 {
-                    "text": {
-                        "id": "gemini_api_key",
-                        "label": "Google Gemini API Key",
-                        "value": self.cfg.gemini_api_key,
-                        "placeholder": "AIzaSy... (leave empty for local tactical brain)",
-                        "max_len": 120,
-                        "help": "Get a free key at aistudio.google.com",
+                    "select": {
+                        "id": "language",
+                        "label": "Idioma del Ingeniero (Selección Manual)",
+                        "value": "en" if self.cfg.language == "en" else "es",
+                        "options": [
+                            {"value": "es", "label": "🇪🇸 Español (Voz Álvaro Neural)"},
+                            {"value": "en", "label": "🇬🇧 English (Voice Ryan Neural)"},
+                        ],
                     }
                 },
                 {
                     "select": {
-                        "id": "language",
-                        "label": "Radio Language",
-                        "value": self.cfg.language,
+                        "id": "voice_mode",
+                        "label": "Modo de Activación por Voz",
+                        "value": self.cfg.voice_mode,
                         "options": [
-                            {"value": "auto", "label": "Bilingual Auto (Spanish & English)"},
-                            {"value": "es", "label": "Español (es-ES-AlvaroNeural)"},
-                            {"value": "en", "label": "English (en-GB-RyanNeural)"},
+                            {"value": "wake_word", "label": 'Palabra Clave ("Ingeniero" / "Marc" + F9)'},
+                            {"value": "always_on", "label": "Siempre Escuchando (Directo sin palabra clave)"},
+                            {"value": "ptt_only", "label": "Solo Push-To-Talk (Tecla F9)"},
                         ],
                     }
                 },
                 {
                     "text": {
                         "id": "driver_name",
-                        "label": "Your Driver Name",
+                        "label": "Tu Nombre de Piloto",
                         "value": self.cfg.driver_name,
                         "max_len": 32,
                     }
@@ -259,7 +369,7 @@ class SwoftyEngineerPlugin:
                 {
                     "text": {
                         "id": "engineer_name",
-                        "label": "Engineer Name",
+                        "label": "Nombre del Ingeniero",
                         "value": self.cfg.engineer_name,
                         "max_len": 32,
                     }
@@ -267,16 +377,15 @@ class SwoftyEngineerPlugin:
                 {
                     "text": {
                         "id": "wake_words",
-                        "label": "Voice Wake Words (comma-separated)",
+                        "label": "Palabras Clave de Activación (separadas por comas)",
                         "value": self.cfg.wake_words,
                         "max_len": 120,
-                        "help": "Say one of these words followed by your question.",
                     }
                 },
                 {
                     "text": {
                         "id": "ptt_key",
-                        "label": "Optional Push-To-Talk Key",
+                        "label": "Tecla Push-To-Talk",
                         "value": self.cfg.ptt_key,
                         "max_len": 16,
                     }
@@ -284,7 +393,7 @@ class SwoftyEngineerPlugin:
                 {
                     "number": {
                         "id": "udp_port",
-                        "label": "F1 25 UDP Telemetry Port",
+                        "label": "Puerto UDP de F1 25",
                         "value": self.cfg.udp_port,
                         "min": 1024,
                         "max": 65535,
@@ -294,7 +403,7 @@ class SwoftyEngineerPlugin:
                 {
                     "slider": {
                         "id": "radio_effect_pct",
-                        "label": "F1 Radio DSP Effect Intensity",
+                        "label": "Intensidad del Efecto DSP de Radio F1",
                         "value": int(round(self.cfg.radio_effect * 100)),
                         "min": 0,
                         "max": 100,
@@ -305,15 +414,24 @@ class SwoftyEngineerPlugin:
                 {
                     "toggle": {
                         "id": "proactive_callouts",
-                        "label": "Proactive Race Control Callouts (Safety Car, Penalties, Fastest Lap)",
+                        "label": "Avisos Proactivos del Ingeniero (DRS, Desgaste, Última Vuelta, Safety Car)",
                         "value": self.cfg.proactive_callouts,
+                    }
+                },
+                {
+                    "text": {
+                        "id": "gemini_api_key",
+                        "label": "Google Gemini API Key (Opcional)",
+                        "value": self.cfg.gemini_api_key,
+                        "placeholder": "AIzaSy... (déjalo vacío para usar el Motor Estratégico Local)",
+                        "max_len": 120,
                     }
                 },
             ]
             blocks.append({
                 "card": {
-                    "title": "Configuration",
-                    "subtitle": "Changes apply immediately to your Race Engineer",
+                    "title": "Configuración del Ingeniero de Pista",
+                    "subtitle": "Los cambios se aplican en tiempo real al guardar",
                     "blocks": [
                         {"form": {"id": "engineer_settings", "columns": 2, "fields": fields}}
                     ],
@@ -321,13 +439,14 @@ class SwoftyEngineerPlugin:
             })
 
         return {
-            "subtitle": "Voice-activated F1 25/26 Race Engineer (UDP + Gemini + Edge TTS Radio)",
+            "subtitle": "Ingeniero de Pista por Voz e IA para F1 25/26 (22/24 coches, Estrategia y Radio F1)",
             "tick": True,
             "actions": [
-                {"id": "open_folder", "label": "Open Config Folder", "icon": "folder-open"}
+                {"id": "open_hud", "label": "Abrir Ventana Pit Wall HUD", "icon": "activity"},
+                {"id": "open_folder", "label": "Abrir Carpeta del Addon", "icon": "folder-open"},
             ],
             "body": {"blocks": blocks},
-            "footer": "Enable UDP Telemetry on port 20777 (Format 2025) in F1 25 Settings -> Telemetry Settings.",
+            "footer": "Activa UDP Telemetry en el puerto 20777 en F1 25 (Settings -> Telemetry Settings).",
         }
 
     def handle_event(self, event: dict) -> dict | str:
@@ -336,12 +455,12 @@ class SwoftyEngineerPlugin:
             return "none"
 
         if "tab" in event:
-            self.tab = event["tab"].get("tab", "settings")
+            self.tab = event["tab"].get("tab", "pitwall")
             return "reload"
 
         if "submit" in event and event["submit"].get("form") == "engineer_settings":
             vals = event["submit"].get("values", {})
-            for k in ("gemini_api_key", "language", "driver_name", "engineer_name", "wake_words", "ptt_key"):
+            for k in ("gemini_api_key", "language", "voice_mode", "driver_name", "engineer_name", "wake_words", "ptt_key"):
                 if k in vals and isinstance(vals[k], str):
                     setattr(self.cfg, k, vals[k].strip())
             if "udp_port" in vals:
@@ -352,27 +471,31 @@ class SwoftyEngineerPlugin:
                 self.cfg.proactive_callouts = bool(vals["proactive_callouts"])
             self.cfg.save(self.config_path)
             self.restart_engineer()
-            return {"notice": "Race Engineer settings saved"}
+            return {"notice": "Ajustes del ingeniero guardados y aplicados"}
 
         click_id = event.get("click", {}).get("id")
         if click_id == "toggle_engineer":
             if self.app is not None:
                 self.stop_engineer()
-                return {"notice": "AI Race Engineer stopped"}
+                return {"notice": "AI Race Engineer detenido"}
             self.start_engineer()
-            return {"notice": "AI Race Engineer started (listening for wake word)"}
+            return {"notice": "AI Race Engineer activo y escuchando por radio"}
 
-        if click_id in ("test_es", "test_en", "test_offtopic"):
+        if click_id == "open_hud":
+            self.open_hud_window()
+            return {"notice": "Ventana Pit Wall HUD abierta"}
+
+        if click_id in ("test_pos", "test_strat", "test_rude"):
             if self.app is None:
                 self.start_engineer()
             q_map = {
-                "test_es": "¿Cuáles son las cinco primeras posiciones ahora mismo?",
-                "test_en": "What are the top five positions right now?",
-                "test_offtopic": "Oye, ¿qué película me recomiendas ver esta noche?",
+                "test_pos": "¿En qué posición voy y qué coche llevo?",
+                "test_strat": "¿Debería parar en boxes ahora? ¿Cuál es la estrategia?",
+                "test_rude": "Cállate ya pesado, déjame conducir en paz",
             }
             q = q_map[click_id]
             threading.Thread(target=self.app.handle_driver_message, args=(q,), daemon=True).start()
-            return {"notice": f"Driver radio sent: '{q}'"}
+            return {"notice": f"Radio enviada: '{q}'"}
 
         if click_id == "open_folder":
             return {"open": str(self.config_path.parent)}
@@ -386,7 +509,9 @@ class SwoftyEngineerPlugin:
         except Exception:
             running = False
         cur_len = len(self.app.brain.dialogue_log) if self.app else 0
-        if running != self._last_game_running or cur_len != self._last_log_len:
+        pkt_bucket = (self.app.telemetry.state.packet_count // 30) if self.app else -1
+        if running != self._last_game_running or cur_len != self._last_log_len or pkt_bucket != self._last_pkt_bucket:
+            self._last_pkt_bucket = pkt_bucket
             self.host.invalidate(section)
         return None
 
