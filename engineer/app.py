@@ -24,6 +24,25 @@ log = logging.getLogger("engineer")
 PID_FILE = DEFAULT_CONFIG_PATH.parent / "engineer.pid"
 
 
+def _kill_pid_quietly(pid: int) -> None:
+    """Termina un PID en Windows usando la API nativa de kernel32 sin lanzar taskkill.exe."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            PROCESS_TERMINATE = 0x0001
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
+            if handle:
+                ctypes.windll.kernel32.TerminateProcess(handle, 0)
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            pass
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+
+
 def ensure_single_instance() -> None:
     """Cierra cualquier instancia previa de AI Race Engineer para evitar audio duplicado."""
     my_pid = os.getpid()
@@ -31,16 +50,8 @@ def ensure_single_instance() -> None:
     if PID_FILE.exists():
         try:
             old_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
-            if old_pid not in (my_pid, parent_pid):
-                if os.name == "nt":
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(old_pid)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        check=False,
-                    )
-                else:
-                    os.kill(old_pid, signal.SIGTERM)
+            if old_pid > 0 and old_pid not in (my_pid, parent_pid):
+                _kill_pid_quietly(old_pid)
                 time.sleep(0.25)
         except Exception:
             pass
