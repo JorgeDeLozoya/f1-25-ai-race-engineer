@@ -22,6 +22,7 @@ from .strategy import (
 from .telemetry import packets as P
 from .telemetry.context import build_race_context, build_standings
 from .telemetry.listener import RaceState
+from .voice import clean_f1_stt_text
 
 log = logging.getLogger("brain")
 
@@ -76,7 +77,7 @@ DRIVER_ALIASES: dict[str, tuple[str, ...]] = {
     "leclerc": ("leclerc", "lecler", "declerc", "charles"),
     "norris": ("norris", "noris", "morris", "lando"),
     "piastri": ("piastri", "piastre", "oscar"),
-    "sainz": ("sainz", "sains", "carlos"),
+    "sainz": ("sainz", "sains", "saenz", "carlos"),
     "hamilton": ("hamilton", "jamilton", "lewis"),
     "russell": ("russell", "rusel", "rasel", "george"),
     "alonso": ("alonso", "fernando", "nano"),
@@ -259,6 +260,7 @@ class EngineerBrain:
     def ask(self, user_text: str, state: RaceState) -> tuple[str, str]:
         """Devuelve (respuesta_limpia, idioma 'es'|'en')."""
         lang = "en" if self.cfg.language == "en" else "es"
+        user_text = clean_f1_stt_text(user_text, lang)
         self.spotter.driver_name = self.cfg.driver_name
         rep = analyze_strategy(state, self.cfg.driver_name)
         context = (
@@ -517,7 +519,13 @@ class EngineerBrain:
         # ¿Quiere activar, consultar uno, o consultar todos los planes (Plan A, B, C)?
         plan_matches = list(dict.fromkeys(m.upper() for m in re.findall(r"\bplan\s*([abc])\b", norm)))
         switching_plan = any(
-            w in norm for w in ("pasamos", "vamos", "cambia", "cambiamos", "activa", "activamos", "prefiero", "confirmado", "switch", "activate", "go to", "do plan")
+            w in norm
+            for w in (
+                "pasar", "pasamos", "pasa", "podemos", "vamos", "ir al", "cambia", "cambiar",
+                "cambiamos", "activa", "activar", "activamos", "pon", "poner", "ponemos",
+                "usar", "usamos", "hacemos", "hacer", "prefiero", "confirmado",
+                "switch", "activate", "go to", "do plan", "use plan",
+            )
         )
         asking_all_plans = len(plan_matches) > 1 or any(
             k in norm for k in ("planes", "que planes", "cuales son", "definir planes", "what plans", "our plans", "what are plan")

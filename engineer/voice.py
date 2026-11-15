@@ -57,6 +57,52 @@ def ensure_vosk_model(lang: str) -> Path:
     return target
 
 
+def clean_f1_stt_text(text: str, lang: str = "es") -> str:
+    """Corrige errores foneticos tipicos de Vosk en radio de F1 (Plan A/B/C, neumaticos, pilotos, paradas)."""
+    if not text:
+        return ""
+    import re
+    s = text.strip()
+    if lang == "en":
+        s = re.sub(r"\bplan\s+(be|bee|v|vee|me|d|dee)\b", "plan b", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bplan\s+(see|sea|si|she|z|zee)\b", "plan c", s, flags=re.IGNORECASE)
+        s = re.sub(r"\bplan\s+(hey|eh|ay)\b", "plan a", s, flags=re.IGNORECASE)
+        return s
+
+    # Español: normalizar "plan al plan veía el planche" -> "plan a plan b y el plan c"
+    s = re.sub(r"\bplan\s+al\s+plan\b", "plan a, plan", s, flags=re.IGNORECASE)
+    # Plan C: "plan fe", "planche", "plan che", "plan ce", "plan se", "plan ze", "plan te", "plan si", "plance"
+    s = re.sub(
+        r"\b(plan\s+(fe|ce|se|ze|che|te|si|pe|hace|sed|ces|c)|planche|plance)\b",
+        "plan c",
+        s,
+        flags=re.IGNORECASE,
+    )
+    # Plan B: "plan vez", "plan de", "plan ve", "plan be", "plan ver", "plan v", "plan me", "plan bien", "plan veía", "plambe"
+    s = re.sub(
+        r"\b(plan\s+(vez|ve|be|de|ver|v|me|bien|veía|veia|vi|va|ven|ves|b)|plambe|planbe)\b",
+        "plan b",
+        s,
+        flags=re.IGNORECASE,
+    )
+    # Plan A: "plan ha", "plan ah", "plan la", "plana"
+    s = re.sub(
+        r"\b(plan\s+(ha|ah|la|al|a)|plana)\b",
+        "plan a",
+        s,
+        flags=re.IGNORECASE,
+    )
+    # Limpiar duplicado accidental "plan pasar al plan" -> "pasar al plan"
+    s = re.sub(r"\bplan\s+(pasar|pasamos|cambiar|cambiamos|ir|vamos)\s+al\s+plan\b", r"\1 al plan", s, flags=re.IGNORECASE)
+    # "lo más rico" -> "neumático"
+    s = re.sub(r"\blo\s+m[aá]s\s+rico\b", "neumático", s, flags=re.IGNORECASE)
+    # "para de" -> "parada de", "sáenz" -> "sainz"
+    s = re.sub(r"\ba\s+para\s+de\b", "la parada de", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bpara\s+de\b", "parada de", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bs[aá]enz\b", "sainz", s, flags=re.IGNORECASE)
+    return s
+
+
 def extract_after_wake_word(text: str, wake_words: list[str]) -> tuple[bool, str]:
     """Busca si el texto contiene alguna palabra clave y devuelve (encontrado, resto_de_la_frase)."""
     low = text.lower().strip()
@@ -201,11 +247,13 @@ class VoiceListener(threading.Thread):
 
         if not rec.AcceptWaveform(chunk):
             pres = json.loads(rec.PartialResult())
-            self.last_partial = (pres.get("partial") or "").strip()
+            raw_part = (pres.get("partial") or "").strip()
+            self.last_partial = clean_f1_stt_text(raw_part, active_lang)
             return
 
         res = json.loads(rec.Result())
-        chosen = (res.get("text") or "").strip()
+        raw_chosen = (res.get("text") or "").strip()
+        chosen = clean_f1_stt_text(raw_chosen, active_lang)
         self.last_partial = ""
         if not chosen:
             return
