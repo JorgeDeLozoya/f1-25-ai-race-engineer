@@ -101,6 +101,17 @@ class RaceEngineerApp:
             self.voice.stop()
         self._write_status(running=False)
 
+    def restart_voice(self) -> None:
+        """Reinicia la captura de microfono en caliente cuando se cambia de dispositivo de entrada en Ajustes."""
+        if self.voice:
+            self.voice.stop()
+        self.voice = VoiceListener(
+            cfg=self.cfg,
+            on_query=self.handle_driver_message,
+            is_speaking_fn=lambda: self.speaker.is_speaking,
+        )
+        self.voice.start()
+
     def handle_driver_message(self, text: str, save_wav: Path | str | None = None) -> tuple[str, str]:
         if not self._msg_lock.acquire(blocking=False):
             return "", "es"

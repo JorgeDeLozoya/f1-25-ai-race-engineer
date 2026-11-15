@@ -71,6 +71,23 @@ def extract_after_wake_word(text: str, wake_words: list[str]) -> tuple[bool, str
     return False, ""
 
 
+def list_input_devices() -> list[tuple[int | None, str]]:
+    """Devuelve la lista de microfonos disponibles en el sistema para el selector de Ajustes."""
+    out: list[tuple[int | None, str]] = [(None, "Sistema por defecto / System Default")]
+    try:
+        devs = sd.query_devices()
+        seen_names: set[str] = set()
+        for idx, d in enumerate(devs):
+            if int(d.get("max_input_channels", 0)) > 0:
+                name = str(d.get("name", f"Mic #{idx}")).strip()
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    out.append((idx, f"[{idx}] {name[:48]}"))
+    except Exception:
+        pass
+    return out
+
+
 class VoiceListener(threading.Thread):
     """Hilo de escucha continua con idioma dedicado ('es' o 'en') y palabra clave ('Ingeniero')."""
 
@@ -103,13 +120,13 @@ class VoiceListener(threading.Thread):
         log.info("[RADIO ABIERTA] Escuchando mensaje del piloto durante %.0fs...", seconds)
 
     def _start_ptt_listener(self) -> None:
-        key_name = (self.cfg.ptt_key or "").strip().lower()
-        if not key_name:
-            return
         try:
             from pynput import keyboard
 
             def on_press(key):
+                key_name = (self.cfg.ptt_key or "").strip().lower()
+                if not key_name:
+                    return
                 try:
                     k = key.char.lower() if hasattr(key, "char") and key.char else key.name.lower()
                 except Exception:
@@ -119,7 +136,7 @@ class VoiceListener(threading.Thread):
 
             listener = keyboard.Listener(on_press=on_press, daemon=True)
             listener.start()
-            log.info("Tecla Push-To-Talk opcional activa: [%s]", key_name.upper())
+            log.info("Tecla Push-To-Talk opcional activa: [%s]", (self.cfg.ptt_key or "F9").upper())
         except Exception as e:
             log.debug("No se pudo iniciar PTT opcional: %s", e)
 
