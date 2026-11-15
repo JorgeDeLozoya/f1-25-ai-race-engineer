@@ -8,6 +8,7 @@ import time
 import tkinter as tk
 
 from .app import RaceEngineerApp
+from .overlay import RadioHudOverlay
 from .strategy import analyze_strategy
 from .telemetry import lookups as L
 from .telemetry.context import build_standings
@@ -17,6 +18,12 @@ VOICE_MODES = [
     ("wake_word", '🎙️ MODO: PALABRA CLAVE ("Ingeniero" + F9)'),
     ("always_on", "🎙️ MODO: SIEMPRE ESCUCHANDO (Directo)"),
     ("ptt_only", "🎙️ MODO: SOLO PUSH-TO-TALK (F9)"),
+]
+
+HUD_MODES = [
+    ("auto", "📺 HUD JUEGO: AUTO (Al hablar)"),
+    ("always", "📺 HUD JUEGO: SIEMPRE FIJO"),
+    ("off", "📺 HUD JUEGO: OCULTO"),
 ]
 
 
@@ -45,6 +52,7 @@ class PitWallWindow:
         self._anim_phase = 0.0
         self._last_dialogue_count = -1
         self._build_ui()
+        self.hud_overlay = RadioHudOverlay(self.root, self.app)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
@@ -77,17 +85,33 @@ class PitWallWindow:
 
         self.spotter_btn = tk.Button(
             top,
-            text="🔔 AVISOS PROACTIVOS: ON" if self.cfg.proactive_callouts else "🔕 AVISOS PROACTIVOS: OFF",
+            text="🔔 AVISOS: ON" if self.cfg.proactive_callouts else "🔕 AVISOS: OFF",
             bg="#18362F" if self.cfg.proactive_callouts else "#2B2D38",
             fg=self.GREEN if self.cfg.proactive_callouts else self.MUTED,
             relief=tk.FLAT,
             font=("Segoe UI", 9, "bold"),
-            padx=10,
+            padx=8,
             pady=4,
             cursor="hand2",
             command=self._toggle_spotter,
         )
         self.spotter_btn.pack(side=tk.RIGHT, padx=4)
+
+        self.hud_btn = tk.Button(
+            top,
+            text=self._hud_label(self.cfg.hud_mode),
+            bg="#361922" if self.cfg.hud_mode != "off" else "#2B2D38",
+            fg="#FF4D58" if self.cfg.hud_mode != "off" else self.MUTED,
+            activebackground="#4C2230",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            font=("Segoe UI", 9, "bold"),
+            padx=9,
+            pady=4,
+            cursor="hand2",
+            command=self._cycle_hud_mode,
+        )
+        self.hud_btn.pack(side=tk.RIGHT, padx=4)
 
         self.mode_btn = tk.Button(
             top,
@@ -444,6 +468,27 @@ class PitWallWindow:
                 return lbl
         return VOICE_MODES[0][1]
 
+    @staticmethod
+    def _hud_label(mode: str) -> str:
+        for k, lbl in HUD_MODES:
+            if k == mode:
+                return lbl
+        return HUD_MODES[0][1]
+
+    def _cycle_hud_mode(self) -> None:
+        keys = [k for k, _ in HUD_MODES]
+        idx = keys.index(self.cfg.hud_mode) if self.cfg.hud_mode in keys else 0
+        self.cfg.hud_mode = keys[(idx + 1) % len(keys)]
+        self.cfg.save()
+        active = self.cfg.hud_mode != "off"
+        self.hud_btn.configure(
+            text=self._hud_label(self.cfg.hud_mode),
+            bg="#361922" if active else "#2B2D38",
+            fg="#FF4D58" if active else self.MUTED,
+        )
+        if active and hasattr(self, "hud_overlay"):
+            self.hud_overlay.trigger_preview(7.0)
+
     def _cycle_voice_mode(self) -> None:
         keys = [k for k, _ in VOICE_MODES]
         idx = keys.index(self.cfg.voice_mode) if self.cfg.voice_mode in keys else 0
@@ -463,7 +508,7 @@ class PitWallWindow:
         self.cfg.save()
         on = self.cfg.proactive_callouts
         self.spotter_btn.configure(
-            text="🔔 AVISOS PROACTIVOS: ON" if on else "🔕 AVISOS PROACTIVOS: OFF",
+            text="🔔 AVISOS: ON" if on else "🔕 AVISOS: OFF",
             bg="#18362F" if on else "#2B2D38",
             fg=self.GREEN if on else self.MUTED,
         )
@@ -479,6 +524,8 @@ class PitWallWindow:
     def _trigger_ptt(self) -> None:
         if self.app.voice:
             self.app.voice.arm_now(8.0)
+        if hasattr(self, "hud_overlay"):
+            self.hud_overlay.trigger_preview(8.0)
 
     def _inject_udp(self, final_lap: bool = False) -> None:
         def _run():
@@ -496,6 +543,8 @@ class PitWallWindow:
     def _send_query(self, query: str) -> None:
         self.driver_line.configure(text=f'PILOTO: "{query}"')
         self.engineer_line.configure(text=f"{self.cfg.engineer_name.upper()}: Copiando transmisión...")
+        if hasattr(self, "hud_overlay"):
+            self.hud_overlay.show_driver_transmitting(query)
         threading.Thread(target=self.app.handle_driver_message, args=(query,), daemon=True).start()
 
     def _update_ui(self) -> None:

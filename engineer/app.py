@@ -85,6 +85,8 @@ class RaceEngineerApp:
         )
         self._stop = threading.Event()
         self._msg_lock = threading.Lock()
+        self.active_driver_query: str = ""
+        self.hud_preview_until: float = 0.0
 
     def start(self) -> None:
         self.telemetry.start()
@@ -103,14 +105,17 @@ class RaceEngineerApp:
         if not self._msg_lock.acquire(blocking=False):
             return "", "es"
         try:
+            self.active_driver_query = text
             with self.telemetry.lock:
                 state = self.telemetry.state
             reply, lang = self.brain.ask(text, state)
+            self.active_driver_query = ""
             log.info("[%s - %s]: %s", self.cfg.engineer_name.upper(), lang.upper(), reply)
             self._write_status(running=True)
             self.speaker.speak(reply, lang=lang, save_wav=save_wav, blocking=True)
             return reply, lang
         finally:
+            self.active_driver_query = ""
             self._msg_lock.release()
 
     def _on_race_event(self, ev: P.Event, state: RaceState) -> None:
@@ -220,6 +225,14 @@ def main() -> None:
         win = PitWallWindow(app)
         win.run()
         return
+
+    if args.daemon:
+        try:
+            from .overlay import run_daemon_with_overlay
+            run_daemon_with_overlay(app)
+            return
+        except Exception:
+            pass
 
     app.start()
 

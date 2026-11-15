@@ -23,6 +23,7 @@ log = logging.getLogger("swofty-helper")
 
 from engineer.app import RaceEngineerApp, ensure_single_instance  # noqa: E402
 from engineer.config import EngineerConfig  # noqa: E402
+from engineer.overlay import start_overlay_thread  # noqa: E402
 from engineer.strategy import analyze_strategy  # noqa: E402
 from engineer.telemetry.context import build_standings  # noqa: E402
 
@@ -89,7 +90,8 @@ class SwoftyEngineerPlugin:
             enable_voice=True,
         )
         self.app.start()
-        log.info("AI Race Engineer iniciado dentro de Swofty Launcher.")
+        start_overlay_thread(self.app)
+        log.info("AI Race Engineer + F1 TV Radio HUD iniciado dentro de Swofty Launcher.")
 
     def stop_engineer(self) -> None:
         if self.app is None:
@@ -359,6 +361,18 @@ class SwoftyEngineerPlugin:
                     }
                 },
                 {
+                    "select": {
+                        "id": "hud_mode",
+                        "label": "HUD de Radio F1 TV dentro del Juego",
+                        "value": self.cfg.hud_mode,
+                        "options": [
+                            {"value": "auto", "label": "📺 Auto-Popup al Hablar o Recibir Radio (Estilo F1 TV)"},
+                            {"value": "always", "label": "📌 Siempre Fijo en el HUD del Juego"},
+                            {"value": "off", "label": "🚫 Oculto (Solo Audio)"},
+                        ],
+                    }
+                },
+                {
                     "text": {
                         "id": "driver_name",
                         "label": "Tu Nombre de Piloto",
@@ -460,7 +474,7 @@ class SwoftyEngineerPlugin:
 
         if "submit" in event and event["submit"].get("form") == "engineer_settings":
             vals = event["submit"].get("values", {})
-            for k in ("gemini_api_key", "language", "voice_mode", "driver_name", "engineer_name", "wake_words", "ptt_key"):
+            for k in ("gemini_api_key", "language", "voice_mode", "hud_mode", "driver_name", "engineer_name", "wake_words", "ptt_key"):
                 if k in vals and isinstance(vals[k], str):
                     setattr(self.cfg, k, vals[k].strip())
             if "udp_port" in vals:
