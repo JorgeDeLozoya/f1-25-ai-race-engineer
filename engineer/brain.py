@@ -119,7 +119,10 @@ DRIVER_ALIASES: dict[str, tuple[str, ...]] = {
 
 RACING_KEYWORDS = {
     # ES
-    "posicion", "posiciones", "puesto", "primero", "primeros", "primeras", "segundo", "segunda",
+    "fuera", "coches", "quien", "quienes", "cuantos", "cuantas", "estan", "salido", "salidos",
+    "roto", "rotos", "abandonos", "retirados", "primero", "lider", "lidera", "cabeza", "ganando",
+    "detras", "delante", "recorto", "recorta", "recortan", "distancia", "segundos",
+    "posicion", "posiciones", "puesto", "primeros", "primeras", "segundo", "segunda",
     "tercero", "tercera", "cuarto", "cuarta", "quinto", "quinta", "sexto", "septimo",
     "octavo", "noveno", "decimo", "ultimo", "ultima", "top", "cinco", "tres", "diez",
     "podio", "puntos", "zona", "clasificacion", "parrilla", "tabla", "lider",
@@ -374,6 +377,11 @@ class EngineerBrain:
                 {"pos": 7, "name": "Russell", "team": "Mercedes", "gap_leader": "+13.0s", "gap_front": "+1.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:47.340", "last_lap_ms": 107340, "s1_ms": 29700, "s2_ms": 47920, "s3_ms": 29720, "is_player": False},
                 {"pos": 8, "name": "Alonso", "team": "Aston Martin", "gap_leader": "+16.4s", "gap_front": "+3.4s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.500", "last_lap_ms": 107500, "s1_ms": 29750, "s2_ms": 48010, "s3_ms": 29740, "is_player": False},
             ]
+
+        me_row = next((r for r in standings if r.get("is_player")), None)
+        my_pos = me_row["pos"] if me_row else rep.position
+        ahead_row = next((r for r in standings if r["pos"] == my_pos - 1), None)
+        behind_row = next((r for r in standings if r["pos"] == my_pos + 1), None)
 
         # ------------------------------------------------------------------
         # 1. "DEJA DE GRITAR" / "STOP YELLING" / "CALMATE"
@@ -967,28 +975,101 @@ class EngineerBrain:
                     return r_info["full"]
 
         # ------------------------------------------------------------------
-        # 13. ¿VIENE A CUENTO DE LA CARRERA? SI NO -> BRONCA VARIADA DE INGENIERO
+        # 13. ABANDONOS / COCHES FUERA / RETIRADOS / DNFs ("cuántos coches están fuera", "quién ha roto")
         # ------------------------------------------------------------------
-        if not (words & RACING_KEYWORDS):
+        if any(k in norm for k in (
+            "fuera", "abandonado", "abandono", "abandonos", "retirado", "retirados",
+            "cuantos coches quedan", "quedan en pista", "quien se ha salido", "se salio",
+            "ha roto", "quien no sigue", "quien falta", "dnf", "dnfs", "retired", "out of the race",
+            "who is out", "how many cars out", "any retirements", "anyone out", "cars out", "quien abandono"
+        )):
+            ret_list = list(rep.retired_names)
+            for r in standings:
+                if r.get("status") in ("DNF", "DSQ", "retired", "not classified") and r.get("name") not in ret_list:
+                    ret_list.append(r["name"])
+
+            if ret_list:
+                rlist = ", ".join(ret_list)
+                if lang == "en":
+                    return f"We have {len(ret_list)} cars out of the race {drv}: {rlist} are DNF."
+                return f"Llevamos {len(ret_list)} coches fuera de carrera {drv}: han abandonado {rlist}."
             if lang == "en":
-                return self._pick("scold_en", [
-                    f"Focus on the race {drv}! Head down and eyes on the track, we are in a live session right now, copy.",
-                    f"Not now {drv}! Keep your mind in the cockpit and hit your braking markers, we will talk about that later.",
-                    f"Eyes on the tarmac {drv}! Save the chit-chat for the hospitality motorhome after the chequered flag.",
-                    f"We are in the middle of a Grand Prix {drv}, concentrate on your corners and forget about that!",
-                    f"Radio is for race calls only {drv}, keep both hands on the wheel and push through this sector.",
-                ])
-            return self._pick("scold_es", [
-                f"¡Céntrate en la carrera, {drv}! Manos al volante y vista en la pista, eso no toca ahora, copy.",
-                f"¡Ahora no, {drv}! Cabeza en el cockpit y clava los vértices, hablamos de eso al bajar del coche.",
-                f"¡Concéntrate en conducir, {drv}! Estamos en mitad de sesión, vigila las referencias de frenada, copy.",
-                f"Déjate de distracciones por la radio {drv}, que te estás dejando dos décimas en este sector. ¡A la pista!",
-                f"Eso lo discutimos luego en el motorhome {drv}, ahora mismo quiero tus cinco sentidos en el asfalto.",
-                f"La radio está para hablar de telemetría y estrategia {drv}, no para charlar. Baja la visera y aprieta.",
-            ])
+                return f"All {rep.total_cars} cars are still running on track {drv}, zero retirements so far."
+            return f"Siguen los {rep.total_cars} coches en pista {drv}, de momento no hay ningún coche fuera ni abandonos."
 
         # ------------------------------------------------------------------
-        # 14. PODIO / TOP 3 / PUNTOS / TOP 10 / ABANDONOS
+        # 14. LÍDER / QUIÉN VA PRIMERO / P1 ("quién va ganando", "quién lidera")
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("quien va primero", "quien lidera", "quien va en cabeza", "quien es el lider", "quien va p1", "quien va ganando", "who is p1", "who is leading", "who leads")):
+            p1_r = next((r for r in standings if r["pos"] == 1), standings[0] if standings else None)
+            if p1_r:
+                if p1_r.get("is_player"):
+                    if lang == "en":
+                        return f"You are leading the race {drv}! P1 is yours, keep your rhythm and control the gap."
+                    return f"¡Vas liderando la carrera, {drv}! Ruedas en P1 con el {rep.player_team}, mantén el ritmo y gestiona la distancia."
+                if lang == "en":
+                    return f"P1 is currently {p1_r['name']} in the {p1_r['team']}, leading the race."
+                return f"En primera posición va {p1_r['name']} con el {p1_r['team']}, liderando la carrera."
+
+        # ------------------------------------------------------------------
+        # 14b. QUIÉN VIENE DETRÁS / GAP DETRÁS / DISTANCIA POR DETRÁS
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("quien viene detras", "quien tengo detras", "quien va detras", "a cuanto esta el de detras", "cuanto le saco", "distancia con el de detras", "gap detras", "me recortan", "me recorta", "quien me persigue", "who is behind", "who is behind me", "gap behind")):
+            if behind_row:
+                b_name = behind_row['name']
+                b_gap = abs(rep.behind_gap_s)
+                if lang == "en":
+                    return f"Behind you is {b_name} in P{behind_row['pos']} at {b_gap:.1f} seconds. Keep your exits clean."
+                return f"Detrás tienes a {b_name} en posición {behind_row['pos']} a {b_gap:.1f} segundos. Concéntrate en la tracción y sal limpio."
+            if lang == "en":
+                return f"You have clear track behind you {drv}, no cars threatening from the rear."
+            return f"Tienes la pista completamente libre por detrás {drv}, no hay nadie pegado a ti."
+
+        # ------------------------------------------------------------------
+        # 14c. QUIÉN VA DELANTE / GAP DELANTE / DISTANCIA POR DELANTE
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("quien va delante", "quien tengo delante", "a cuanto esta el de delante", "cuanto le recorto", "distancia con el de delante", "gap delante", "a cuanto estoy", "who is ahead", "who is in front", "gap ahead")):
+            if ahead_row:
+                a_name = ahead_row['name']
+                a_gap = rep.ahead_gap_s
+                drs_note = " Tienes zona de DRS disponible." if a_gap <= 1.0 else ""
+                if lang == "en":
+                    return f"Ahead is {a_name} in P{ahead_row['pos']} at {a_gap:.1f} seconds.{' DRS is available.' if a_gap <= 1.0 else ''}"
+                return f"Delante tienes a {a_name} en posición {ahead_row['pos']} a {a_gap:.1f} segundos.{drs_note}"
+            if lang == "en":
+                return f"You are P1 {drv}, clean air ahead to the chequered flag!"
+            return f"¡Vas en primera posición {drv}! Aire limpio por delante, sigue tirando hasta la bandera."
+
+        # ------------------------------------------------------------------
+        # 14d. REPARTO DE FRENADA / BALANCE Y DIFERENCIAL (CONSEJO DE INGENIERO)
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("reparto de frenada", "reparto de freno", "balance de frenos", "que reparto pongo", "reparto frenada", "freno", "frenada", "brake bias")):
+            bias = 56 if rep.max_wear_pct < 40 else 57
+            if lang == "en":
+                return f"For this stint {drv}, keep brake bias at {bias}% forward to protect rear tyre stability under braking."
+            return f"Para este sector te recomiendo poner el reparto de frenada al {bias}% hacia delante {drv}, así evitas que bloquee el eje trasero."
+
+        if any(k in norm for k in ("diferencial", "que diferencial pongo", "ajuste diferencial", "differential")):
+            diff = 55 if rep.max_wear_pct > 35 else 60
+            if lang == "en":
+                return f"Set on-throttle differential to {diff}% {drv}, gives smooth traction on exit without killing the rear tyres."
+            return f"Pon el diferencial de aceleración en torno al {diff}% {drv}, te dará tracción progresiva en las salidas sin castigar las gomas."
+
+        # ------------------------------------------------------------------
+        # 14e. RADIO CHECKS Y CONFIRMACIONES TÍPICAS
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("radio check", "me recibes", "me escuchas", "probando radio", "comprobacion de radio")):
+            if lang == "en":
+                return f"Loud and clear {drv}, radio five by five! The car is looking good on telemetry, keep pushing!"
+            return f"¡Cinco de cinco {drv}, te recibo alto y claro desde el muro! La telemetría marca todo en orden, a por ellos."
+
+        if any(k in norm for k in ("entendido", "copiado", "recibido", "roger", "copy that")) and len(norm.split()) <= 4:
+            if lang == "en":
+                return f"Copy that {drv}, head down and keep your rhythm."
+            return f"Copiado {drv}, cabeza fría, clava los vértices y sigue empujando."
+
+        # ------------------------------------------------------------------
+        # 14f. PODIO / TOP 3 / PUNTOS / TOP 10
         # ------------------------------------------------------------------
         if any(k in norm for k in ("podio", "podium", "top 3", "tres primeros", "tres primeras")):
             top3 = standings[:3]
@@ -1010,16 +1091,6 @@ class EngineerBrain:
             if lang == "en":
                 return f"You are currently P{rep.position}, outside the points by {rep.position - 10} positions and {rep.points_gap_s:.1f} seconds behind P10 {p10_r['name']}."
             return f"Ahora mismo estás fuera de los puntos en la posición {rep.position}. Tienes el décimo puesto de {p10_r['name']} a {rep.points_gap_s:.1f} segundos y {rep.position - 10} coches por delante."
-
-        if any(k in norm for k in ("abandonado", "abandono", "retirado", "cuantos coches quedan", "dnf", "retired")):
-            if rep.retired_names:
-                rlist = ", ".join(rep.retired_names)
-                if lang == "en":
-                    return f"We have {len(rep.retired_names)} retirements so far, {rlist} out of the race."
-                return f"Llevamos {len(rep.retired_names)} abandonos confirmados en carrera, están fuera {rlist}."
-            if lang == "en":
-                return f"All {rep.total_cars} cars are still running on track, zero retirements so far."
-            return f"Siguen los {rep.total_cars} coches en pista {drv}, de momento no ha abandonado nadie."
 
         # ------------------------------------------------------------------
         # 15. ¿LE RECORTAMOS / EN CUANTAS VUELTAS LE PILLO / COMPARACION DE RITMO?
@@ -1250,6 +1321,25 @@ class EngineerBrain:
             if lang == "en":
                 return f"At {rep.track_name}, track condition is {rep.weather_now}, tarmac at {rep.track_temp} degrees. Rain probability is {rep.rain_forecast_pct} percent."
             return f"Aquí en {rep.track_name} tenemos {rep.weather_now_es} con {rep.track_temp} grados en el asfalto. La probabilidad de lluvia es del {rep.rain_forecast_pct} por ciento."
+
+        # Si no encaja con ninguna pregunta tecnica pero tampoco tiene ninguna palabra de carreras
+        if not (words & RACING_KEYWORDS):
+            if lang == "en":
+                return self._pick("scold_en", [
+                    f"Focus on the race {drv}! Head down and eyes on the track, we are in a live session right now, copy.",
+                    f"Not now {drv}! Keep your mind in the cockpit and hit your braking markers, we will talk about that later.",
+                    f"Eyes on the tarmac {drv}! Save the chit-chat for the hospitality motorhome after the chequered flag.",
+                    f"We are in the middle of a Grand Prix {drv}, concentrate on your corners and forget about that!",
+                    f"Radio is for race calls only {drv}, keep both hands on the wheel and push through this sector.",
+                ])
+            return self._pick("scold_es", [
+                f"¡Céntrate en la carrera, {drv}! Manos al volante y vista en la pista, eso no toca ahora, copy.",
+                f"¡Ahora no, {drv}! Cabeza en el cockpit y clava los vértices, hablamos de eso al bajar del coche.",
+                f"¡Concéntrate en conducir, {drv}! Estamos en mitad de sesión, vigila las referencias de frenada, copy.",
+                f"Déjate de distracciones por la radio {drv}, que te estás dejando dos décimas en este sector. ¡A la pista!",
+                f"Eso lo discutimos luego en el motorhome {drv}, ahora mismo quiero tus cinco sentidos en el asfalto.",
+                f"La radio está para hablar de telemetría y estrategia {drv}, no para charlar. Baja la visera y aprieta.",
+            ])
 
         return rep.full_briefing_en if lang == "en" else rep.full_briefing_es
 
