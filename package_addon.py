@@ -26,8 +26,9 @@ def build_package() -> Path:
             p = ROOT / rel
             if p.exists():
                 zf.write(p, arcname=rel)
-        for py in (ROOT / "engineer").rglob("*.py"):
-            zf.write(py, arcname=str(py.relative_to(ROOT)).replace("\\", "/"))
+        for f in (ROOT / "engineer").rglob("*"):
+            if f.is_file() and not f.name.endswith(".pyc") and "__pycache__" not in str(f):
+                zf.write(f, arcname=str(f.relative_to(ROOT)).replace("\\", "/"))
     print(f"Addon empaquetado en: {OUT_FILE} ({OUT_FILE.stat().st_size:,} bytes)")
     return OUT_FILE
 

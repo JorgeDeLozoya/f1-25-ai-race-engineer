@@ -17,18 +17,30 @@ from .telemetry.context import build_standings
 from .voice import list_input_devices
 
 SPANISH_VOICES = [
-    ("es-ES-AlvaroNeural", "Álvaro (España · Ingeniero F1)"),
-    ("es-ES-ElviraNeural", "Elvira (España · Ingeniera F1)"),
-    ("es-MX-JorgeNeural", "Jorge (Latinoamérica · Muro)"),
-    ("es-AR-TomasNeural", "Tomás (Argentina · Muro)"),
+    ("es-ES-AlvaroNeural", "Álvaro (España · Marc / Ingeniero F1)"),
+    ("es-ES-ElviraNeural", "Elvira (España · Ingeniera de Estrategia)"),
+    ("es-ES-XimenaNeural", "Ximena (España / Colombia · Muro)"),
+    ("es-MX-JorgeNeural", "Jorge (México · Enérgico / Dinámico)"),
+    ("es-MX-DaliaNeural", "Dalia (México · Muro de Boxes)"),
+    ("es-AR-TomasNeural", "Tomás (Argentina · Directo / Radio)"),
+    ("es-AR-ElenaNeural", "Elena (Argentina · Ingeniera)"),
+    ("es-CO-GonzaloNeural", "Gonzalo (Colombia · Pit Wall)"),
+    ("es-CO-SalomeNeural", "Salomé (Colombia · Estrategia)"),
+    ("es-US-AlonsoNeural", "Alonso (EE.UU. / Español · Muro)"),
+    ("es-CL-LorenzoNeural", "Lorenzo (Chile · Ingeniero)"),
 ]
 
 ENGLISH_VOICES = [
-    ("en-GB-RyanNeural", "Ryan (UK British · GP / Bono Style)"),
-    ("en-GB-ThomasNeural", "Thomas (UK British · Pit Wall)"),
-    ("en-GB-SoniaNeural", "Sonia (UK British · Strategy Engineer)"),
-    ("en-US-GuyNeural", "Guy (US · Race Engineer)"),
-    ("en-AU-WilliamNeural", "William (Australia · Race Engineer)"),
+    ("en-GB-RyanNeural", "Ryan (UK British · GP Lambiase / Bono Style)"),
+    ("en-GB-ThomasNeural", "Thomas (UK British · Technical Director)"),
+    ("en-GB-SoniaNeural", "Sonia (UK British · Senior Strategy Engineer)"),
+    ("en-US-GuyNeural", "Guy (US American · American Pit Wall)"),
+    ("en-US-ChristopherNeural", "Christopher (US American · Radio Engineer)"),
+    ("en-US-EricNeural", "Eric (US American · Deep Voice)"),
+    ("en-US-JennyNeural", "Jenny (US American · Race Engineer)"),
+    ("en-AU-WilliamMultilingualNeural", "William (Australia · Aussie Race Engineer)"),
+    ("en-CA-LiamNeural", "Liam (Canada · Pit Wall)"),
+    ("en-IE-ConnorNeural", "Connor (Ireland · High Energy)"),
 ]
 
 TEAM_OPTIONS = list(L.TEAM_STYLES.keys())
@@ -732,7 +744,8 @@ class PitWallWindow:
             c2,
             "Sonido del Pitido de Radio:",
             [
-                "🔊 Doble Pitido Oficial F1 TV Broadcast",
+                "📻 Oficial F1 TV (Audio Real F1)",
+                "🔊 F1 TV (Sintético Anterior)",
                 "📡 Chirp Digital FIA Muro de Boxes",
                 "📻 Walkie Clásico F1 (Años 2000)",
                 "🔇 Sin Pitido (Solo Voz)",
@@ -1116,9 +1129,12 @@ class PitWallWindow:
         self.scale_vol.set(int(round(self.cfg.volume * 100)))
         self.var_radio_beep.set(bool(self.cfg.radio_beep_enabled))
         self.var_radio_bg.set(bool(self.cfg.radio_bg_enabled))
-        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        beep_styles = ["f1_tv_real", "f1_tv_synth", "fia_pitwall", "classic_v10", "off"]
+        cur_style = self.cfg.radio_beep_style
+        if cur_style == "f1_tv":
+            cur_style = "f1_tv_real"
         self.cmb_beep_style.current(
-            beep_styles.index(self.cfg.radio_beep_style) if self.cfg.radio_beep_style in beep_styles else 0
+            beep_styles.index(cur_style) if cur_style in beep_styles else 0
         )
         bg_styles = ["pitwall_f1_flyby", "pit_garage_guns", "pitwall_telemetry", "off"]
         self.cmb_bg_style.current(
@@ -1171,7 +1187,7 @@ class PitWallWindow:
         self.cfg.volume = float(self.scale_vol.get()) / 100.0
         self.cfg.radio_beep_enabled = bool(self.var_radio_beep.get())
         self.cfg.radio_bg_enabled = bool(self.var_radio_bg.get())
-        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        beep_styles = ["f1_tv_real", "f1_tv_synth", "fia_pitwall", "classic_v10", "off"]
         self.cfg.radio_beep_style = beep_styles[max(0, self.cmb_beep_style.current())]
         bg_styles = ["pitwall_f1_flyby", "pit_garage_guns", "pitwall_telemetry", "off"]
         self.cfg.radio_bg_style = bg_styles[max(0, self.cmb_bg_style.current())]
@@ -1433,26 +1449,31 @@ class PitWallWindow:
             text="🏎️ Enable Background Ambience (F1 Flybys)" if en else "🏎️ Activar Sonido de Fondo (F1 / Muro)"
         )
         self.lbl_beep_style.configure(text="Radio Beep Sound Style:" if en else "Sonido del Pitido de Radio:")
-        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        beep_styles = ["f1_tv_real", "f1_tv_synth", "fia_pitwall", "classic_v10", "off"]
         self.cmb_beep_style.configure(
             values=(
                 [
-                    "🔊 Official F1 TV Broadcast Double-Beep",
+                    "📻 Official F1 TV (Real Broadcast Audio)",
+                    "🔊 F1 TV (Previous Synthetic Beep)",
                     "📡 FIA Pit Wall Digital Chirp",
                     "📻 Classic F1 Analog Walkie (2000s)",
                     "🔇 No Beep (Voice Only)",
                 ]
                 if en
                 else [
-                    "🔊 Doble Pitido Oficial F1 TV Broadcast",
+                    "📻 Oficial F1 TV (Audio Real F1)",
+                    "🔊 F1 TV (Sintético Anterior)",
                     "📡 Chirp Digital FIA Muro de Boxes",
                     "📻 Walkie Clásico F1 (Años 2000)",
                     "🔇 Sin Pitido (Solo Voz)",
                 ]
             )
         )
+        cur_style = self.cfg.radio_beep_style
+        if cur_style == "f1_tv":
+            cur_style = "f1_tv_real"
         self.cmb_beep_style.current(
-            beep_styles.index(self.cfg.radio_beep_style) if self.cfg.radio_beep_style in beep_styles else 0
+            beep_styles.index(cur_style) if cur_style in beep_styles else 0
         )
 
         self.lbl_bg_style.configure(text="Radio Background Ambience:" if en else "Ambiente de Fondo en la Radio:")

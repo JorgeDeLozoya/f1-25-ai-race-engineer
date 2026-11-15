@@ -30,19 +30,58 @@ def naturalize_for_speech(text: str, lang: str) -> str:
     # Quitar parentesis y dos puntos que provocan pausas largas en el TTS
     s = s.replace("(", ", ").replace(")", "").replace(":", ",")
     if lang.lower().startswith("en"):
-        # "+2.8s" -> "2.8"
-        s = re.sub(r"\+(\d+)\.(\d+)s\b", r"\1 point \2", s)
+        # English F1 telemetry
+        s = re.sub(r"\bS1\b", "Sector 1", s)
+        s = re.sub(r"\bS2\b", "Sector 2", s)
+        s = re.sub(r"\bS3\b", "Sector 3", s)
+        s = re.sub(r"[+-]?\b0\.(\d{1,3})\s*(?:seconds?|s\b)", r"0 point \1 seconds", s)
+        s = re.sub(r"\+(\d+)\.(\d+)s\b", r"\1 point \2 seconds", s)
         s = re.sub(r"\b(\d+)\.(\d+)s\b", r"\1 point \2 seconds", s)
+        s = re.sub(r"\b(\d{1,2})\.(\d{3})s\b", r"\1 point \2", s)
+        s = re.sub(r"\bL(\d{1,2})\b", r"lap \1", s)
     else:
-        # En espanol, "+2.8s" -> "2 con 8", "P1" -> "primero"
+        # Español F1 telemetría
+        # 1. Nombres de sectores para evitar que diga "ese uno"
+        s = re.sub(r"\bS1\b", "Sector uno", s)
+        s = re.sub(r"\bS2\b", "Sector dos", s)
+        s = re.sub(r"\bS3\b", "Sector tres", s)
+
+        # 2. Decimales de segundo: 0.22 segundos, 0.14s, 0.20s, 0.05 segundos -> décimas / centésimas
+        def _sub_zero_sec(m: re.Match) -> str:
+            dec = m.group(1)
+            val = int(dec)
+            if len(dec) == 1:
+                return "una décima de segundo" if val == 1 else f"{val} décimas de segundo"
+            elif len(dec) == 2:
+                d1, d2 = int(dec[0]), int(dec[1])
+                if d1 == 0:
+                    return f"{val} centésimas de segundo"
+                elif d2 == 0:
+                    return "una décima de segundo" if d1 == 1 else f"{d1} décimas de segundo"
+                else:
+                    return f"{val} centésimas de segundo"
+            elif len(dec) == 3:
+                return f"{int(dec[:2])} centésimas de segundo"
+            return f"cero con {dec} segundos"
+
+        s = re.sub(r"[+-]?\b0\.(\d{1,3})\s*(?:segundos?|s\b)", _sub_zero_sec, s)
+
+        # 3. Parciales con milésimas: 29.410s -> 29 con 410
+        s = re.sub(r"\b(\d{1,2})\.(\d{3})s\b", r"\1 con \2", s)
+
+        # 4. Gaps normales: +1.4s -> 1 con 4 segundos
         s = re.sub(r"\+0\.0s\b", "", s)
-        s = re.sub(r"\+(\d+)\.(\d+)s\b", r"\1 con \2", s)
+        s = re.sub(r"\+(\d+)\.(\d+)s\b", r"\1 con \2 segundos", s)
         s = re.sub(r"\b(\d+)\.(\d+)s\b", r"\1 con \2 segundos", s)
+
         s = re.sub(
             r"\bP(\d{1,2})\b",
             lambda m: _POS_ES.get(m.group(1), f"posición {m.group(1)}"),
             s,
         )
+        s = re.sub(r"\bV(\d{1,2})\b", r"vuelta \1", s)
+        s = re.sub(r"\b(\d+)%\b", r"\1 por ciento", s)
+
     s = re.sub(r"\s+,", ",", s)
     s = re.sub(r",\s*,", ",", s)
     s = re.sub(r"\s{2,}", " ", s)
