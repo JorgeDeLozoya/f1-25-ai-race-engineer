@@ -144,19 +144,45 @@ class RadioHudOverlay:
         self.win.geometry(f"{self.WIDTH}x240+{x}+{y}")
 
     def _apply_win32_noactivate(self) -> None:
-        """Evita que el overlay robe el foco del volante/mando/teclado cuando estas dentro de F1 25."""
+        """Evita que el overlay robe el foco del volante/mando/teclado y lo vincula con la ventana de F1 25."""
         if os.name != "nt":
             return
         try:
-            hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
             GWL_EXSTYLE = -20
             WS_EX_TOPMOST = 0x00000008
             WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_NOACTIVATE = 0x08000000
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            ctypes.windll.user32.SetWindowLongW(
+            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32.SetWindowLongW(
                 hwnd, GWL_EXSTYLE, style | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
             )
+
+            # Buscar la ventana del juego F1 para declararnos como propiedad de su ventana
+            found_game_hwnd = None
+
+            def enum_cb(h, _):
+                nonlocal found_game_hwnd
+                if user32.IsWindowVisible(h):
+                    length = user32.GetWindowTextLengthW(h)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(h, buff, length + 1)
+                        title = buff.value
+                        if any(k in title for k in ("F1 25", "F1® 25", "F1 24", "F1® 24", "F1 26", "F1® 26")):
+                            found_game_hwnd = h
+                            return False
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+            if found_game_hwnd and found_game_hwnd != hwnd:
+                # GWLP_HWNDPARENT = -8: vincula la ventana al Z-order del juego
+                if hasattr(user32, "SetWindowLongPtrW"):
+                    user32.SetWindowLongPtrW(hwnd, -8, found_game_hwnd)
+                else:
+                    user32.SetWindowLongW(hwnd, -8, found_game_hwnd)
         except Exception:
             pass
 
