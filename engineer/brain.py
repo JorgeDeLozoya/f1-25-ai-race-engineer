@@ -11,11 +11,13 @@ from google import genai
 from google.genai import types
 
 from .config import EngineerConfig
+from .mfd import tap_key
 from .strategy import (
     ProactiveSpotter,
     StrategyReport,
     analyze_rival_pit_and_status,
     analyze_strategy,
+    compare_car_sectors,
 )
 from .telemetry import packets as P
 from .telemetry.context import build_race_context, build_standings
@@ -142,14 +144,19 @@ RACING_KEYWORDS = {
     "voy", "estoy", "estado", "reporte", "informe", "resumen", "situacion", "ataco",
     "atacar", "adelanto", "adelantar", "defiendo", "defender", "abandonado", "abandono",
     "retirado", "dnf", "circuito", "trazado", "gritar", "grites", "equivocado",
-    "equivocas", "acuerdo", "puedes", "ayuda",
+    "equivocas", "acuerdo", "puedes", "ayuda", "pierdo", "perdiendo", "gano", "ganando",
+    "parcial", "parciales", "crossover", "intermedios", "solicita", "pide", "prepara",
+    "sube", "baja", "personalidad", "modo", "ferrari", "bono", "canero", "cañero",
+    "debrief", "debriefing", "salida", "ganado", "remontado",
     "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12",
     # EN
     "position", "positions", "standings", "podium", "points", "leader", "first",
     "second", "third", "fourth", "fifth", "five", "three", "ten", "ahead", "front",
     "behind", "delta", "interval", "catching", "catch", "faster", "slower", "lap", "laps",
-    "left", "remaining", "last", "best", "fastest", "pace", "sector", "tyre", "tyres",
-    "tire", "tires", "wear", "degradation", "grip", "sliding", "understeer", "oversteer",
+    "left", "remaining", "last", "best", "fastest", "pace", "sector", "sectors", "splits",
+    "losing", "gaining", "crossover", "inters", "intermediates", "slicks", "request",
+    "select", "prepare", "debrief", "summary", "gained", "start", "persona", "mode",
+    "tyre", "tyres", "tire", "tires", "wear", "degradation", "grip", "sliding", "understeer", "oversteer",
     "traction", "turn", "temp", "temps", "temperature", "brake", "brakes", "bias",
     "differential", "setup", "balance", "damage", "wing", "floor", "engine", "gearbox",
     "hit", "pushed", "crashed", "contact", "fuel", "mix", "battery", "window", "strategy",
@@ -195,6 +202,47 @@ class EngineerBrain:
         mem.append(idx)
         return options[idx]
 
+    def _apply_persona_style(self, text: str, lang: str) -> str:
+        """Adapta el toque final de la respuesta segun la personalidad elegida (GP, Bono, Ferrari, Canero)."""
+        persona = (self.cfg.engineer_persona or "balanced").lower()
+        if persona == "balanced" or not text:
+            return text
+        # No alterar si ya lleva muletilla de esa personalidad
+        low = text.lower()
+        if persona == "ferrari":
+            if "checking" in low or "comprobando" in low or "maranello" in low:
+                return text
+            if lang == "en":
+                prefix = self._pick("fer_p_en", ["We are checking... ", "Copy, checking data... ", "Understood, looking at it... "])
+                suffix = self._pick("fer_s_en", [" Question?", " Plan E is also open, copy.", " Head down, copy."])
+                return f"{prefix}{text}{suffix}"
+            prefix = self._pick("fer_p_es", ["Estamos comprobando en el muro, checking... ", "Recibido desde Maranello, revisando telemetría... ", "Un segundo, estamos mirando los datos... "])
+            suffix = self._pick("fer_s_es", [" ¿Pregunta?", " Seguimos en Plan A o Plan E, copy.", " Mantén la calma, copy."])
+            return f"{prefix}{text}{suffix}"
+
+        if persona == "gp":
+            if lang == "en":
+                suffix = self._pick("gp_s_en", [" Understood, now keep your head down and drive.", " Don't overcomplicate it, just hit your apexes.", " Simply focus on the next corner."])
+                return f"{text}{suffix}"
+            suffix = self._pick("gp_s_es", [" Ya te he oído, ahora baja la cabeza y conduce.", " Déjate de historias y clava los vértices.", " Tú limítate a llevar el coche por lo negro."])
+            return f"{text}{suffix}"
+
+        if persona == "bono":
+            if lang == "en":
+                suffix = self._pick("bono_s_en", [" Get in there, it's Hammer Time!", " You're doing a mega job out there, keep it up!", " Smooth inputs, we trust your pace 100 percent."])
+                return f"{text}{suffix}"
+            suffix = self._pick("bono_s_es", [" ¡Es hora del Hammer Time, confiamos al cien por cien en tus manos!", " ¡Estás haciendo un carrerón impecable, sigue así!", " Trazada limpia y constante, tienes un ritmo brutal."])
+            return f"{text}{suffix}"
+
+        if persona == "canero":
+            if lang == "en":
+                suffix = self._pick("can_s_en", [" No excuses now, flat out through this sector!", " Wake up in that cockpit and attack!", " Stop babysitting the throttle and push!"])
+                return f"{text}{suffix}"
+            suffix = self._pick("can_s_es", [" ¡Y déjate de excusas, quiero el pie a tabla en este sector!", " ¡Espabila en el cockpit y muerde el piano!", " ¡Aprieta los dientes de una vez, que no hemos venido a pasear!"])
+            return f"{text}{suffix}"
+
+        return text
+
     @staticmethod
     def _match_rival_in_standings(norm: str, words: set[str], standings: list[dict]) -> dict | None:
         """Busca si la frase menciona a algun piloto de la parrilla (incluyendo alias foneticos de Vosk)."""
@@ -216,14 +264,17 @@ class EngineerBrain:
         context = (
             build_race_context(state)
             + "\n[LIVE STRATEGY ANALYSIS]\n"
-            + f"Active Pit Wall Plan: Plan {self.active_plan} | Engineer Argument Level: {self.argument_level} | "
-            + f"Ignored Pit Calls: {self.spotter.ignored_box_laps}\n"
-            + f"Driver Car: {rep.player_driver} ({rep.player_team}) | Position: P{rep.position}/{rep.total_cars} | "
+            + f"Active Pit Wall Plan: Plan {self.active_plan} | Persona: {self.cfg.engineer_persona} | "
+            + f"Argument Level: {self.argument_level} | Ignored Pit Calls: {self.spotter.ignored_box_laps}\n"
+            + f"Driver Car: {rep.player_driver} ({rep.player_team}) | Position: P{rep.position}/{rep.total_cars} (Started P{rep.grid_position}) | "
             + f"Lap: {rep.current_lap}/{rep.total_laps} ({rep.laps_remaining} laps left)\n"
             + f"Box Recommendation: {rep.box_recommendation} | Next Compound: {rep.recommended_compound} | "
             + f"Predicted Rejoin: P{rep.predicted_rejoin_pos} | Tyre Wear Rate: {rep.wear_per_lap:.1f}%/lap "
             + f"(~{rep.est_tyre_laps_left} good laps left)\n"
             + f"Plan A: {rep.plan_a_en}\nPlan B: {rep.plan_b_en}\nPlan C: {rep.plan_c_en}\n"
+            + f"Sector Comparison: {rep.sector_comparison_en}\n"
+            + f"Wet/Dry Crossover: {rep.crossover_summary_en}\n"
+            + f"Race Debrief: {rep.debrief_en}\n"
             + f"Pace Analysis: {rep.pace_analysis_en}\n"
             + f"Setup Advice: {rep.setup_advice_en}\n"
             + f"ES Briefing: {rep.full_briefing_es}\n"
@@ -239,7 +290,8 @@ class EngineerBrain:
                 log.warning("Fallo Gemini API (%s), usando motor estrategico local.", e)
 
         if not reply_text:
-            reply_text = self._local_strategic_brain(user_text, state, rep, lang)
+            raw_local = self._local_strategic_brain(user_text, state, rep, lang)
+            reply_text = self._apply_persona_style(raw_local, lang)
 
         self.history.append((user_text, reply_text))
         self._log(user_text, reply_text, lang)
@@ -290,14 +342,14 @@ class EngineerBrain:
         standings = build_standings(state, limit=24)
         if not standings:
             standings = [
-                {"pos": 1, "name": "Verstappen", "team": "Red Bull", "gap_leader": "+0.0s", "gap_front": "+0.0s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.110", "is_player": False},
-                {"pos": 2, "name": "Leclerc", "team": "Ferrari", "gap_leader": "+2.8s", "gap_front": "+2.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.450", "is_player": False},
-                {"pos": 3, "name": "Norris", "team": "McLaren", "gap_leader": "+5.1s", "gap_front": "+2.3s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.780", "is_player": False},
-                {"pos": 4, "name": drv, "team": "Aston Martin", "gap_leader": "+6.5s", "gap_front": "+1.4s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.820", "is_player": True},
-                {"pos": 5, "name": "Sainz", "team": "Williams", "gap_leader": "+8.6s", "gap_front": "+2.1s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.020", "is_player": False},
-                {"pos": 6, "name": "Hamilton", "team": "Ferrari", "gap_leader": "+11.2s", "gap_front": "+2.6s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.190", "is_player": False},
-                {"pos": 7, "name": "Russell", "team": "Mercedes", "gap_leader": "+13.0s", "gap_front": "+1.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:47.340", "is_player": False},
-                {"pos": 8, "name": "Alonso", "team": "Aston Martin", "gap_leader": "+16.4s", "gap_front": "+3.4s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.500", "is_player": False},
+                {"pos": 1, "name": "Verstappen", "team": "Red Bull", "gap_leader": "+0.0s", "gap_front": "+0.0s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.110", "last_lap_ms": 106110, "s1_ms": 29210, "s2_ms": 47450, "s3_ms": 29450, "is_player": False},
+                {"pos": 2, "name": "Leclerc", "team": "Ferrari", "gap_leader": "+2.8s", "gap_front": "+2.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.450", "last_lap_ms": 106450, "s1_ms": 29300, "s2_ms": 47520, "s3_ms": 29630, "is_player": False},
+                {"pos": 3, "name": "Norris", "team": "McLaren", "gap_leader": "+5.1s", "gap_front": "+2.3s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.780", "last_lap_ms": 106780, "s1_ms": 29550, "s2_ms": 47600, "s3_ms": 29630, "is_player": False},
+                {"pos": 4, "name": drv, "team": "Aston Martin", "gap_leader": "+6.5s", "gap_front": "+1.4s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.820", "last_lap_ms": 106820, "s1_ms": 29410, "s2_ms": 47820, "s3_ms": 29590, "is_player": True},
+                {"pos": 5, "name": "Sainz", "team": "Williams", "gap_leader": "+8.6s", "gap_front": "+2.1s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.020", "last_lap_ms": 107020, "s1_ms": 29600, "s2_ms": 47780, "s3_ms": 29640, "is_player": False},
+                {"pos": 6, "name": "Hamilton", "team": "Ferrari", "gap_leader": "+11.2s", "gap_front": "+2.6s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.190", "last_lap_ms": 107190, "s1_ms": 29650, "s2_ms": 47850, "s3_ms": 29690, "is_player": False},
+                {"pos": 7, "name": "Russell", "team": "Mercedes", "gap_leader": "+13.0s", "gap_front": "+1.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:47.340", "last_lap_ms": 107340, "s1_ms": 29700, "s2_ms": 47920, "s3_ms": 29720, "is_player": False},
+                {"pos": 8, "name": "Alonso", "team": "Aston Martin", "gap_leader": "+16.4s", "gap_front": "+3.4s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.500", "last_lap_ms": 107500, "s1_ms": 29750, "s2_ms": 48010, "s3_ms": 29740, "is_player": False},
             ]
 
         # ------------------------------------------------------------------
@@ -495,6 +547,138 @@ class EngineerBrain:
                 f"Te resumo las tres pizarras del muro {drv}, ahora mismo vamos con el Plan {self.active_plan}. "
                 f"{rep.plan_a_es} {rep.plan_b_es} Y {rep.plan_c_es}"
             )
+
+        # ------------------------------------------------------------------
+        # 6B. CAMBIO DE PERSONALIDAD DEL INGENIERO POR VOZ (GP, BONO, FERRARI, CAÑERO)
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("modo ferrari", "estilo ferrari", "ferrari mode", "modo gp", "estilo red bull", "gp mode", "modo bono", "estilo mercedes", "bono mode", "modo canero", "modo sargento", "modo normal", "modo estandar")):
+            if "ferrari" in norm:
+                self.cfg.engineer_persona = "ferrari"
+                self.cfg.save()
+                return "Copy, Maranello pit wall mode active. We are checking telemetry, Plan A or Plan E available, question?" if lang == "en" else "Recibido desde Maranello, modo Ferrari activado en el muro. Estamos comprobando telemetría, checking... ¿pregunta?"
+            if "gp" in norm or "red bull" in norm:
+                self.cfg.engineer_persona = "gp"
+                self.cfg.save()
+                return f"GP Red Bull mode active {drv}. Less talking on the radio and more apex speed, copy." if lang == "en" else f"Modo GP Red Bull activado {drv}. Menos charla por la radio y más velocidad de paso por curva, copy."
+            if "bono" in norm or "mercedes" in norm:
+                self.cfg.engineer_persona = "bono"
+                self.cfg.save()
+                return f"Bono mode online {drv}. Get in there, it's Hammer Time!" if lang == "en" else f"Modo Bono activado {drv}. ¡Es hora del Hammer Time, vamos a por todas!"
+            if "canero" in norm or "sargento" in norm:
+                self.cfg.engineer_persona = "canero"
+                self.cfg.save()
+                return f"Hardcore Sergeant mode active {drv}! No excuses now, flat out!" if lang == "en" else f"¡Modo Sargento Cañero activado {drv}! Cero excusas en el cockpit, quiero el pie a tabla."
+            self.cfg.engineer_persona = "balanced"
+            self.cfg.save()
+            return f"Standard race engineer mode restored {drv}, copy." if lang == "en" else f"Modo ingeniero estándar restaurado en el muro {drv}, copy."
+
+        # ------------------------------------------------------------------
+        # 6C. COMANDOS DE VOZ PARA EL MFD DEL JUEGO (SIN SOLTAR EL VOLANTE)
+        # ------------------------------------------------------------------
+        if any(
+            k in norm
+            for k in (
+                "solicita box", "solicitar box", "pide box", "pedir box", "pide parada",
+                "confirma box", "confirmo box", "avisa a los mecanicos", "prepara el box",
+                "request pit", "request box", "confirm box", "call the pit crew",
+            )
+        ):
+            if self.cfg.mfd_enabled:
+                tap_key(self.cfg.mfd_box_key)
+            self.spotter.order_box_now(rep.current_lap)
+            if lang == "en":
+                return (
+                    f"Copy {drv}, pit stop requested on the MFD and the crew is getting the {rep.recommended_compound} tyres out of the blankets! Box this lap, predicted rejoin is P{rep.predicted_rejoin_pos}."
+                )
+            return (
+                f"¡Recibido {drv}, parada solicitada en el MFD y los mecánicos ya están sacando las mantas del neumático {rep.recommended_compound_es}! Entra en esta vuelta, saldremos en torno a P{rep.predicted_rejoin_pos}."
+            )
+
+        if any(
+            k in norm
+            for k in (
+                "prepara neumatico", "preparame neumatico", "prepara goma", "ponme neumatico",
+                "quiero montar", "montar blando", "montar medio", "montar duro", "montar intermedio",
+                "select soft", "select medium", "select hard", "select inter", "prepare soft",
+                "prepare medium", "prepare hard", "prepare inter",
+            )
+        ):
+            if self.cfg.mfd_enabled:
+                tap_key(self.cfg.mfd_tyre_key)
+            chosen_es = rep.recommended_compound_es
+            chosen_en = rep.recommended_compound
+            for c_es, c_en in (("blando", "Soft"), ("medio", "Medium"), ("duro", "Hard"), ("intermedio", "Intermediate"), ("lluvia", "Wet")):
+                if c_es in norm or c_en.lower() in norm:
+                    chosen_es, chosen_en = c_es, c_en
+                    break
+            if lang == "en":
+                return f"Understood {drv}, cycling MFD tyre compound to {chosen_en}s for the next stop. The pit crew has the {chosen_en} set ready."
+            return f"Copiado {drv}, seleccionando compuesto {chosen_es} en el MFD para tu próxima parada. Los mecánicos ya tienen preparado el juego de {chosen_es}s."
+
+        if any(
+            k in norm
+            for k in (
+                "sube el reparto", "subir reparto", "reparto hacia delante", "mas freno delante",
+                "baja el reparto", "bajar reparto", "reparto hacia atras", "mas freno detras",
+                "brake bias forward", "brake bias up", "brake bias rearward", "brake bias down",
+            )
+        ):
+            going_up = any(w in norm for w in ("sube", "subir", "delante", "forward", "up"))
+            if self.cfg.mfd_enabled:
+                tap_key(self.cfg.mfd_brake_up_key if going_up else self.cfg.mfd_brake_down_key)
+            new_bb = min(70, rep.brake_bias + 1) if going_up else max(50, rep.brake_bias - 1)
+            if lang == "en":
+                return f"Copy {drv}, adjusting MFD brake bias {'forward' if going_up else 'rearward'} to {new_bb} percent."
+            return f"Recibido {drv}, ajustando el reparto de frenada en el MFD un punto hacia {'delante' if going_up else 'atrás'}, al {new_bb} por ciento."
+
+        # ------------------------------------------------------------------
+        # 6D. COMPARATIVA DE SECTORES S1 / S2 / S3 ("¿DONDE PIERDO O GANO TIEMPO?")
+        # ------------------------------------------------------------------
+        if any(
+            k in norm
+            for k in (
+                "donde pierdo", "donde estoy perdiendo", "donde gano", "donde me saca",
+                "como van mis sectores", "mis sectores", "mis parciales", "comparar sectores",
+                "en que sector", "sector 1", "sector 2", "sector 3",
+                "where am i losing", "where do i lose", "how are my sectors", "sector splits", "compare sectors",
+            )
+        ):
+            me_r = next((r for r in standings if r.get("is_player")), None)
+            target_r = self._match_rival_in_standings(norm, words, standings)
+            if target_r is None:
+                if "lider" in norm or "leader" in norm or "primero" in norm:
+                    target_r = standings[0] if standings else None
+                else:
+                    target_r = next((r for r in standings if r["pos"] == rep.position - 1), None) or (standings[0] if standings else None)
+            if target_r and me_r and not target_r.get("is_player"):
+                return compare_car_sectors(me_r, target_r, rep, lang=lang)
+            return rep.sector_comparison_en if lang == "en" else rep.sector_comparison_es
+
+        # ------------------------------------------------------------------
+        # 6E. DETECTOR DE CROSSOVER DE LLUVIA / INTERMEDIOS VS SLICKS
+        # ------------------------------------------------------------------
+        if any(
+            k in norm
+            for k in (
+                "crossover", "momento de intermedios", "pongo intermedios", "poner intermedios",
+                "para intermedios", "pista para secos", "se ha secado", "quien lleva intermedios",
+                "time for inters", "switch to inters", "box for inters", "dry line", "who is on inters",
+            )
+        ):
+            return rep.crossover_summary_en if lang == "en" else rep.crossover_summary_es
+
+        # ------------------------------------------------------------------
+        # 6F. DEBRIEFING / RESUMEN DE CARRERA Y POSICIONES GANADAS EN SALIDA
+        # ------------------------------------------------------------------
+        if any(
+            k in norm
+            for k in (
+                "resumen de la carrera", "resumen de carrera", "debrief", "debriefing",
+                "cuantas posiciones he ganado", "posiciones desde la salida", "en que posicion sali",
+                "race debrief", "race summary", "positions gained", "where did i start",
+            )
+        ):
+            return rep.debrief_en if lang == "en" else rep.debrief_es
 
         # ------------------------------------------------------------------
         # 7. ORDENES DE EQUIPO / COMPAÑERO DE EQUIPO ("DEJO ADELANTAR A MI COMPAÑERO", "MULTI 21")
