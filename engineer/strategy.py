@@ -231,74 +231,89 @@ def get_circuit_profile(track_name: str) -> dict[str, str]:
 def diagnose_and_tune_car(
     issue: str, rep: StrategyReport, cfg: EngineerConfig, lang: str = "es"
 ) -> str:
-    """Analiza circuito + neumatico + clima + temperaturas, aplica el cambio automatico en el MFD y responde."""
+    """Analiza circuito + neumatico + clima + temperaturas y da la instruccion exacta para que el piloto ajuste su MFD/volante."""
     prof = get_circuit_profile(rep.track_name)
     tuned = auto_adjust_car_mfd(issue, cfg, base_brake_bias=rep.brake_bias)
     new_bb = tuned.get("brake_bias", rep.brake_bias)
     new_diff = tuned.get("diff", LIVE_OVERRIDES.diff_pct)
     new_wing = tuned.get("wing", LIVE_OVERRIDES.front_wing_delta)
-    wet_note_es = " con la pista delicada por la humedad" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" con el asfalto a {rep.track_temp} grados"
-    wet_note_en = " on this damp surface" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" with track temp at {rep.track_temp} degrees"
+    cur_bb = rep.brake_bias or 56
+    bb_delta = new_bb - cur_bb
+
+    pts_es = f"{abs(bb_delta)} {'punto' if abs(bb_delta) == 1 else 'puntos'}"
+    pts_en = f"{abs(bb_delta)} click{'s' if abs(bb_delta) > 1 else ''}"
+    if bb_delta < 0:
+        bb_act_es = f"baja el reparto de frenada {pts_es} hacia atrás, déjalo al {new_bb}%"
+        bb_act_en = f"move brake bias {pts_en} rearward to {new_bb}%"
+    elif bb_delta > 0:
+        bb_act_es = f"sube el reparto de frenada {pts_es} hacia delante, ponlo al {new_bb}%"
+        bb_act_en = f"move brake bias {pts_en} forward to {new_bb}%"
+    else:
+        bb_act_es = f"mantén el reparto de frenada al {new_bb}%"
+        bb_act_en = f"keep brake bias at {new_bb}%"
+
+    wet_note_es = " con asfalto húmedo" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" con asfalto a {rep.track_temp} grados"
+    wet_note_en = " on damp track" if "rain" in rep.weather_now or rep.rain_forecast_pct >= 50 else f" at {rep.track_temp} degrees track temp"
 
     if issue == "understeer":
         if lang == "en":
             return (
-                f"Copy on the understeer in {rep.track_name}. With your {rep.current_tyre}s at {rep.max_tyre_temp} degrees and {rep.max_wear_pct:.0f}% wear{wet_note_en}, "
-                f"the front axle is washing out through {prof['fast_en']}. "
-                f"I have automatically shifted your MFD brake bias rearward to {new_bb}%, opened the differential to {new_diff}% to help the car rotate, "
-                f"and pre-set +{new_wing} click of front wing for our lap {rep.pit_window_ideal} pit stop."
+                f"Copy on the understeer at {rep.track_name}. Front tyres are washing out through {prof['fast_en']}{wet_note_en}. "
+                f"On your wheel: {bb_act_en}. On your MFD: open the on-corner differential to {new_diff}% to help the car rotate into the apex. "
+                f"I've also noted +{new_wing} click of front wing for our lap {rep.pit_window_ideal} stop."
             )
         return (
-            f"Te copio con la falta de giro aquí en {rep.track_name}. Con el neumático {rep.current_tyre_es} a {rep.max_tyre_temp} grados y al {rep.max_wear_pct:.0f}% de desgaste{wet_note_es}, "
-            f"te cuesta meter el morro en {prof['fast_es']}. "
-            f"Ya te he bajado automáticamente desde el muro el reparto de frenada al {new_bb}% en el MFD, he abierto el diferencial al {new_diff}% para que rote mejor en el vértice, "
-            f"y he dejado preparado +{new_wing} punto de alerón delantero para la parada de la vuelta {rep.pit_window_ideal}."
+            f"Te copio con la falta de giro aquí en {rep.track_name}. Se te abre el morro en {prof['fast_es']}{wet_note_es}. "
+            f"En tu volante: {bb_act_es}. En el MFD: abre el diferencial en curva al {new_diff}% para ayudar a rotar el coche hacia el vértice. "
+            f"Y dejo anotado +{new_wing} punto de alerón delantero para la parada de la vuelta {rep.pit_window_ideal}."
         )
 
     if issue == "oversteer":
         if lang == "en":
             return (
-                f"Understood on the rear instability at {rep.track_name}. Your {rep.current_tyre} tyres are at {rep.max_tyre_temp} degrees{wet_note_en}. "
-                f"I just moved your MFD brake bias forward to {new_bb}% and opened the on-throttle differential to {new_diff}% to calm the rear down exiting {prof['harvest_en']}. "
-                f"Short-shift from 2nd to 3rd gear on exit!"
+                f"Copy on the loose rear at {rep.track_name}. Tyres are at {rep.max_tyre_temp} degrees{wet_note_en}. "
+                f"On your wheel: {bb_act_en}. In the MFD: drop on-throttle differential to {new_diff}% to settle the rear out of {prof['harvest_en']}. "
+                f"Short-shift to 3rd gear on traction!"
             )
         return (
-            f"Recibido con el sobreviraje en {rep.track_name}. Tus gomas {rep.current_tyre_es}s van a {rep.max_tyre_temp} grados{wet_note_es}. "
-            f"Te acabo de subir automáticamente el reparto de frenada al {new_bb}% delante y he bajado el diferencial en aceleración al {new_diff}% en el MFD para sujetar la trasera al salir de {prof['harvest_es']}. "
+            f"Recibido con el sobreviraje en {rep.track_name}. Llevas los neumáticos a {rep.max_tyre_temp} grados{wet_note_es}. "
+            f"En tu volante: {bb_act_es}. En el MFD: baja el diferencial en aceleración al {new_diff}% para sujetar la trasera al salir de {prof['harvest_es']}. "
             f"Mete tercera un poco antes al traccionar."
         )
 
     if issue == "poor_braking":
         if lang == "en":
             return (
-                f"Copy on the braking feel at {rep.track_name}. Brake discs are at {rep.max_brake_temp} degrees on {rep.tyre_age}-lap old {rep.current_tyre}s. "
-                f"I have automatically adjusted your MFD brake bias to {new_bb}% and increased engine braking differential to {new_diff}% so the car stops much shorter into {prof['brake_en']}. "
-                f"Brake five metres earlier in straight-line threshold before turning in."
+                f"Copy on the brakes into {rep.track_name}. Discs are at {rep.max_brake_temp} degrees on {rep.tyre_age}-lap old {rep.current_tyre}s. "
+                f"On your wheel: {bb_act_en}. In your MFD: set differential engine braking to {new_diff}% to shorten the stopping distance into {prof['brake_en']}. "
+                f"Brake hard in a straight line before turning in."
             )
         return (
-            f"Te copio con los frenos aquí en {rep.track_name}. Llevas los discos a {rep.max_brake_temp} grados con goma {rep.current_tyre_es} de {rep.tyre_age} vueltas. "
-            f"Te he reajustado automáticamente el reparto de frenada al {new_bb}% y la retención del diferencial al {new_diff}% en el MFD para darte más mordiente en {prof['brake_es']}. "
-            f"Frena fuerte en línea recta y suelta pedal progresivo al girar."
+            f"Te copio con la frenada en {rep.track_name}. Llevas los discos a {rep.max_brake_temp} grados con gomas de {rep.tyre_age} vueltas. "
+            f"En tu volante: {bb_act_es}. En el MFD: pon la retención de motor y diferencial al {new_diff}% para clavar el coche en {prof['brake_es']}. "
+            f"Frena fuerte en línea recta y suelta progresivo antes de meter dirección."
         )
 
     if issue == "more_power":
         if lang == "en":
             return (
-                f"Copy, giving you full power now! I have switched your MFD ERS deployment to Overtake mode with {rep.ers_pct}% battery left. "
-                f"Use it all down {prof['straight_en']} to attack {rep.ahead_name}, and harvest on braking into {prof['harvest_en']}."
+                f"Giving you maximum attack mode! On your wheel: hit the Overtake button on ERS and switch fuel mix to Rich if available. "
+                f"Deploy it down {prof['straight_en']} to launch on {rep.ahead_name}!"
             )
         return (
-            f"¡Recibido, te doy toda la potencia ahora mismo! Ya te he activado automáticamente el mapa de Adelantamiento en el MFD con tu {rep.ers_pct}% de batería. "
-            f"Despliégalo a fondo en {prof['straight_es']} para tirarle el coche a {rep.ahead_name}, y recarga luego frenando en {prof['harvest_es']}."
+            f"¡Modo de ataque total! En tu volante: activa el botón de Adelantamiento en el ERS y pon mezcla Rica en el MFD si está disponible. "
+            f"Despliégalo a fondo en {prof['straight_es']} para tirarle el coche a {rep.ahead_name}."
         )
 
     if issue == "save_battery":
         if lang == "en":
             return (
-                f"Copy, switching your MFD ERS mode to Harvest now. Do 20 metres of lift and coast before braking into {prof['brake_en']} and {prof['harvest_en']} and we will recover 15% battery per lap."
+                f"Copy, battery management mode. On your wheel: set ERS deployment dial to Harvest or Balanced. "
+                f"Do 20 metres of lift and coast before {prof['brake_en']} to recover 15% battery per lap."
             )
         return (
-            f"Copiado, te acabo de bajar automáticamente el mapa de ERS a modo Recarga en el MFD. Levanta el pie veinte metros antes de frenar en {prof['brake_es']} y {prof['harvest_es']} y recuperaremos un 15% de batería por vuelta."
+            f"Copiado, modo de ahorro de energía. En tu volante: pon el selector de ERS en modo Recarga o Neutro. "
+            f"Haz 20 metros de lift and coast antes de frenar en {prof['brake_es']} y recuperaremos un 15% de batería por vuelta."
         )
 
     return rep.setup_advice_en if lang == "en" else rep.setup_advice_es
