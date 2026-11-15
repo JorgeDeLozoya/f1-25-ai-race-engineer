@@ -11,13 +11,14 @@ from google import genai
 from google.genai import types
 
 from .config import EngineerConfig
-from .mfd import tap_key
+from .mfd import apply_plan_to_game_and_strategy, tap_key
 from .strategy import (
     ProactiveSpotter,
     StrategyReport,
     analyze_rival_pit_and_status,
     analyze_strategy,
     compare_car_sectors,
+    diagnose_and_tune_car,
 )
 from .telemetry import packets as P
 from .telemetry.context import build_race_context, build_standings
@@ -128,13 +129,13 @@ RACING_KEYWORDS = {
     "falta", "faltan", "final", "sector", "sectores", "neumatico", "neumaticos",
     "rico", "rueda", "ruedas", "goma", "gomas", "blando", "medio", "duro", "intermedio",
     "desgaste", "degradacion", "agarre", "grip", "desliza", "patina", "traccion",
-    "subviraje", "sobreviraje", "gira", "morro", "culo", "trasera", "delantera",
+    "subviraje", "sobreviraje", "gira", "girar", "cuesta", "morro", "culo", "trasera", "delantera",
     "temperatura", "temperaturas", "fria", "frias", "caliente", "calientes",
-    "freno", "frenos", "reparto", "frenada", "bloqueo", "diferencial", "reglaje",
+    "freno", "frenos", "frena", "frenar", "largo", "reparto", "frenada", "bloqueo", "diferencial", "reglaje",
     "setup", "alerta", "dano", "daño", "danos", "daños", "aleron", "fondo", "motor",
     "caja", "toque", "chocado", "golpe", "empujado", "echado", "cerrado", "incidente",
     "roto", "combustible", "gasolina", "mezcla", "deposito", "tanque", "lift", "coast",
-    "ers", "bateria", "energia", "mapa", "drs", "pit", "box", "boxes", "parada", "paradas",
+    "ers", "bateria", "energia", "potencia", "corre", "recta", "ahorrar", "mapa", "drs", "pit", "box", "boxes", "parada", "paradas",
     "paro", "parar", "parado", "parara", "proxima", "deberia", "entro", "entrar",
     "ventana", "estrategia", "plan", "planes", "undercut", "overcut", "trafico",
     "doblado", "doblados", "aire", "sucio", "lluvia", "llover", "clima", "meteo",
@@ -283,9 +284,24 @@ class EngineerBrain:
             + f"EN Briefing: {rep.full_briefing_en}"
         )
         api_key = self.cfg.resolved_api_key()
+        norm_q = (
+            user_text.lower()
+            .replace("á", "a").replace("é", "e").replace("í", "i")
+            .replace("ó", "o").replace("ú", "u")
+        )
+        is_action_cmd = bool(re.search(r"\bplan\s*[abc]\b", norm_q)) or any(
+            k in norm_q
+            for k in (
+                "cuesta girar", "no gira", "subviraje", "sobreviraje", "patina", "desliza",
+                "frena poco", "no frena", "cuesta frenar", "me voy largo", "bloqueo",
+                "mas energia", "mas potencia", "no corre", "ahorrar bateria", "sin bateria",
+                "solicita box", "pide box", "prepara neumatico", "sube el reparto", "baja el reparto",
+                "understeer", "oversteer", "more energy", "more power", "poor braking", "request box",
+            )
+        )
 
         reply_text = ""
-        if api_key:
+        if api_key and not is_action_cmd:
             try:
                 reply_text = self._ask_gemini(user_text, context, lang, api_key)
             except Exception as e:
@@ -536,11 +552,27 @@ class EngineerBrain:
             plan_desc_en = {"A": rep.plan_a_en, "B": rep.plan_b_en, "C": rep.plan_c_en}[letter]
             if switching_plan or len(words) <= 4:
                 self.active_plan = letter
-                if letter == "B" and rep.laps_remaining > 3:
-                    self.spotter.order_box_now(rep.current_lap + 1)
+                pinfo = apply_plan_to_game_and_strategy(
+                    letter,
+                    self.cfg,
+                    rep.current_lap,
+                    rep.total_laps,
+                    rep.pit_window_ideal,
+                    rep.current_tyre,
+                    rep.rain_forecast_pct,
+                )
+                rep = analyze_strategy(state, self.cfg.driver_name)
+                if letter == "B" and rep.laps_remaining >= 2:
+                    self.spotter.order_box_now(pinfo["pit_lap"])
                 if lang == "en":
-                    return f"Copy {drv}, switching pit wall to Plan {letter} now. {plan_desc_en}"
-                return f"Recibido {drv}, activamos el Plan {letter} en el muro de boxes. {plan_desc_es}"
+                    return (
+                        f"Copy {drv}, switching pit wall and MFD to Plan {letter} now! "
+                        f"New target pit stop is Lap {pinfo['pit_lap']} for {pinfo['comp']} tyres, ERS set to {pinfo['ers']}. {plan_desc_en}"
+                    )
+                return (
+                    f"¡Recibido {drv}, activamos el Plan {letter} en la pizarra y en el MFD del coche! "
+                    f"He reajustado tu parada a la vuelta {pinfo['pit_lap']} para montar neumático {pinfo['comp_es']} y el mapa de ERS en modo {pinfo['ers_es']}. {plan_desc_es}"
+                )
             if lang == "en":
                 return f"{plan_desc_en} Right now our active strategy is Plan {self.active_plan}. Tell me if you want to switch."
             return f"{plan_desc_es} Ahora mismo tenemos activo el Plan {self.active_plan} en pizarra; dime si quieres que cambiemos."
@@ -843,19 +875,64 @@ class EngineerBrain:
             )
 
         # ------------------------------------------------------------------
-        # 11. QUEJAS DEL COCHE / MANEJO (SUBVIRAJE, SOBREVIRAJE, FALTA DE AGARRE, REGLAJES)
+        # 11. QUEJAS DEL COCHE / MANEJO Y ENERGIA (AUTO-MFD IA SEGUN CIRCUITO, NEUMATICO Y TIEMPO)
         # ------------------------------------------------------------------
-        if any(k in norm for k in ("no gira", "subviraje", "se va de delante", "morro", "sobreviraje", "se va de atras", "patina", "desliza", "no tengo agarre", "sin agarre", "traccion", "bloqueo", "diferencial", "reglaje", "setup", "understeer", "oversteer", "no grip", "sliding", "traction", "balance")):
-            if lang == "en":
-                return self._pick("setup_en", [
-                    f"Copy on the balance {drv}. {rep.setup_advice_en}",
-                    f"We see the slip on telemetry. {rep.setup_advice_en} Also be progressive on the throttle out of slow zones.",
-                ])
-            return self._pick("setup_es", [
-                f"Te copio con el comportamiento del coche {drv}. {rep.setup_advice_es}",
-                f"Vemos ese deslizamiento en los sensores del muro. {rep.setup_advice_es}",
-                f"Recibido {drv}. {rep.setup_advice_es} Acaricia el acelerador a la salida de las curvas lentas para cuidar las gomas.",
-            ])
+        understeer_q = any(
+            k in norm
+            for k in (
+                "cuesta girar", "no gira", "subviraje", "se va de delante", "no entra el morro",
+                "entra el morro", "me voy recto", "morro", "understeer", "won't turn", "wont turn", "cant turn",
+            )
+        )
+        oversteer_q = any(
+            k in norm
+            for k in (
+                "sobreviraje", "se va de atras", "patina", "desliza", "pierdo la trasera",
+                "culo", "cuesta traccionar", "traccion", "oversteer", "sliding", "wheelspin", "rear is loose",
+            )
+        )
+        poor_braking_q = any(
+            k in norm
+            for k in (
+                "frena poco", "no frena", "cuesta frenar", "me voy largo", "paso de frenada",
+                "bloqueo", "bloqueando", "frenos calientes", "frenos frios", "cant stop",
+                "can't stop", "locking up", "braking is poor", "no brakes",
+            )
+        )
+        more_power_q = any(
+            k in norm
+            for k in (
+                "necesito mas energia", "mas energia", "dame energia", "mas potencia",
+                "dame potencia", "no corre", "falta velocidad", "modo ataque", "necesito bateria",
+                "need more energy", "more power", "need power", "no top speed",
+            )
+        )
+        save_battery_q = any(
+            k in norm
+            for k in (
+                "ahorrar bateria", "ahorrar energia", "recargar bateria", "cargar bateria",
+                "sin bateria", "me quedo sin bateria", "save battery", "harvest energy",
+            )
+        )
+        general_setup_q = any(
+            k in norm
+            for k in ("no tengo agarre", "sin agarre", "reglaje", "setup", "diferencial", "no grip", "balance")
+        )
+
+        if understeer_q or oversteer_q or poor_braking_q or more_power_q or save_battery_q or general_setup_q:
+            if understeer_q:
+                issue_code = "understeer"
+            elif oversteer_q:
+                issue_code = "oversteer"
+            elif poor_braking_q:
+                issue_code = "poor_braking"
+            elif more_power_q:
+                issue_code = "more_power"
+            elif save_battery_q:
+                issue_code = "save_battery"
+            else:
+                issue_code = "understeer" if "FL" in rep.worst_wheel or "FR" in rep.worst_wheel else "oversteer"
+            return diagnose_and_tune_car(issue_code, rep, self.cfg, lang=lang)
 
         # ------------------------------------------------------------------
         # 12. ¿QUIEN VA EN UNA POSICION CONCRETA? ("quien va segundo / tercero / P1 / ultimo...")
