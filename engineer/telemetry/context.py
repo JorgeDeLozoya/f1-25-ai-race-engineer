@@ -1,8 +1,7 @@
-"""Convierte el RaceState en un resumen compacto para el prompt de la IA."""
+"""Convierte el RaceState en clasificacion en vivo (20/22/24 coches) y contexto para la IA."""
 from __future__ import annotations
 
 from . import lookups as L
-from . import packets as P
 from .listener import RaceState
 
 
@@ -20,6 +19,16 @@ def fmt_delta(ms: int) -> str:
     return f"+{ms / 1000.0:.1f}s"
 
 
+def is_classic_2010_grid(state: RaceState) -> bool:
+    """Detecta si la parrilla corresponde al mod de la temporada 2010 (Swofty)."""
+    markers = {"SCHUMACHER", "BARRICHELLO", "LIUZZI", "TRULLI", "PETROV", "BUEMI", "SUTIL", "KOVALAINEN", "GLOCK", "CHANDHOK", "WEBBER", "MASSA", "BUTTON", "ROSBERG"}
+    hits = 0
+    for p in state.participants:
+        if p.name.upper().strip() in markers:
+            hits += 1
+    return hits >= 3
+
+
 def driver_name(state: RaceState, idx: int) -> str:
     if 0 <= idx < len(state.participants):
         name = state.participants[idx].name
@@ -28,7 +37,10 @@ def driver_name(state: RaceState, idx: int) -> str:
     return f"Car #{idx}"
 
 
-def team_name(state: RaceState, idx: int) -> str:
+def team_name(state: RaceState, idx: int, drv_name: str = "") -> str:
+    name_up = (drv_name or driver_name(state, idx)).upper().strip()
+    if is_classic_2010_grid(state) and name_up in L.CLASSIC_DRIVER_TEAMS:
+        return L.CLASSIC_DRIVER_TEAMS[name_up]
     if 0 <= idx < len(state.participants):
         return L.TEAMS.get(state.participants[idx].team_id, "Unknown Team")
     return "Unknown Team"
@@ -39,34 +51,187 @@ def compound_str(state: RaceState, idx: int) -> str:
         st = state.status[idx]
         comp = L.COMPOUNDS.get(st.visual_compound) or L.COMPOUNDS.get(st.actual_compound, "?")
         return f"{comp} ({st.tyre_age}L)"
-    return "?"
+    if idx in state.fitted_tyres:
+        ft = state.fitted_tyres[idx]
+        comp = L.COMPOUNDS.get(ft.visual_compound) or L.COMPOUNDS.get(ft.actual_compound, "Soft")
+        age = state.session_history[idx].tyre_age if idx in state.session_history else 1
+        return f"{comp} ({age}L)"
+    if idx in state.session_history:
+        sh = state.session_history[idx]
+        comp = L.COMPOUNDS.get(sh.visual_compound) or L.COMPOUNDS.get(sh.actual_compound, "Soft")
+        return f"{comp} ({sh.tyre_age}L)"
+    return "Soft (1L)"
 
 
-def build_standings(state: RaceState, limit: int = 22) -> list[dict]:
-    """Devuelve la clasificacion ordenada por posicion."""
-    rows = []
+def _infer_missing_2010_drivers(state: RaceState) -> list[tuple[str, str]]:
+    """Si faltan 1 o 2 coches (slots 22 y 23 en UDP 2025), deduce sus nombres y equipos."""
+    present_names = {p.name.upper().strip() for p in state.participants if p.name}
+    if not is_classic_2010_grid(state):
+        return [("SENNA", "Tu Monoplaza"), ("KUBICA", "Renault")]
+    # Pares de companeros de 2010 cuyos slots suelen ir al final (HRT, Renault, Toro Rosso, Virgin)
+    pairs = [
+        ("CHANDHOK", "SENNA", "HRT (Hispania)"),
+        ("SENNA", "CHANDHOK", "HRT (Hispania)"),
+        ("PETROV", "KUBICA", "Renault"),
+        ("KUBICA", "PETROV", "Renault"),
+        ("BUEMI", "ALGUERSUARI", "Toro Rosso"),
+        ("GLOCK", "DI GRASSI", "Virgin Racing"),
+    ]
+    missing: list[tuple[str, str]] = []
+    for teammate_present, missing_drv, team in pairs:
+        if teammate_present in present_names and missing_drv not in present_names:
+            if (missing_drv, team) not in missing:
+                missing.append((missing_drv, team))
+    if not missing:
+        missing = [("SENNA", "HRT (Hispania)"), ("KUBICA", "Renault")]
+    return missing
+
+
+def build_standings(state: RaceState, limit: int = 24) -> list[dict]:
+    """Devuelve la clasificacion completa ordenada por posicion (incluyendo reconstruccion de 24 coches)."""
+    if not state.laps:
+        return []
+
+    pidx = state.player_idx
+    # Si player_idx no apunta a un coche con posicion > 0, buscar participante humano (ai == False)
+    resolved_pidx = pidx
+    if not (0 <= pidx < len(state.laps) and state.laps[pidx].position > 0):
+        for idx, part in enumerate(state.participants):
+            if not part.ai and idx < len(state.laps) and state.laps[idx].position > 0:
+                resolved_pidx = idx
+                break
+
+    rows: list[dict] = []
+    by_pos: dict[int, dict] = {}
+
     for idx, ld in enumerate(state.laps):
         if ld.position <= 0:
             continue
-        if ld.result_status in (0, 1):
+        # Solo ignorar result_status 0/1 si realmente es un slot vacio sin vuelta ni distancia
+        if ld.result_status in (0, 1) and ld.lap <= 0 and ld.total_distance <= 0.0 and idx != resolved_pidx:
             continue
-        rows.append({
+        dname = driver_name(state, idx)
+        tname = team_name(state, idx, dname)
+        row = {
             "idx": idx,
             "pos": ld.position,
-            "name": driver_name(state, idx),
-            "team": team_name(state, idx),
-            "lap": ld.lap,
+            "name": dname,
+            "team": tname,
+            "lap": max(1, ld.lap),
+            "last_lap_ms": ld.last_lap_ms,
             "last_lap": fmt_ms(ld.last_lap_ms),
             "best_lap": fmt_ms(state.best_laps.get(idx, 0)),
+            "delta_front_ms": ld.delta_front_ms,
+            "delta_leader_ms": ld.delta_leader_ms,
             "gap_front": fmt_delta(ld.delta_front_ms),
             "gap_leader": fmt_delta(ld.delta_leader_ms),
             "tyre": compound_str(state, idx),
             "pits": ld.num_pit_stops,
             "pit_status": L.PIT_STATUS.get(ld.pit_status, ""),
             "penalties_s": ld.penalties_s,
+            "warnings": ld.corner_cut_warnings,
             "status": L.RESULT_STATUS.get(ld.result_status, "active"),
-            "is_player": idx == state.player_idx,
-        })
+            "is_player": idx == resolved_pidx,
+        }
+        rows.append(row)
+        by_pos[ld.position] = row
+
+    # ¿El jugador esta en los slots 22 o 23 de una parrilla de 24 coches (Swofty) con UDP 2025 (22 slots)?
+    has_player_row = any(r["is_player"] for r in rows)
+    if not has_player_row and rows:
+        max_seen_pos = max(r["pos"] for r in rows)
+        total_expected = max(max_seen_pos, len(rows) + 1, state.num_active if state.num_active <= 24 else 22)
+        missing_positions = [p for p in range(1, total_expected + 1) if p not in by_pos]
+
+        if missing_positions:
+            # Determinar cual de las posiciones ausentes en 1..N corresponde al jugador (slot 22/23)
+            player_missing_pos = missing_positions[0]
+            if pidx in state.lap_positions and state.lap_positions[pidx] in missing_positions:
+                player_missing_pos = state.lap_positions[pidx]
+            elif state.player_pos_hint in missing_positions:
+                player_missing_pos = state.player_pos_hint
+            elif 0 <= state.last_opponent_idx < len(state.laps):
+                op_pos = state.laps[state.last_opponent_idx].position
+                if op_pos > 0:
+                    player_missing_pos = min(missing_positions, key=lambda mp: abs(mp - op_pos))
+            elif len(missing_positions) >= 2 and pidx in state.session_history:
+                other_slot = 23 if pidx == 22 else 22
+                if other_slot in state.session_history:
+                    my_h = state.session_history[pidx]
+                    ot_h = state.session_history[other_slot]
+                    if my_h.cumulative_ms > 0 and ot_h.cumulative_ms > 0 and my_h.num_laps == ot_h.num_laps:
+                        player_missing_pos = (
+                            min(missing_positions) if my_h.cumulative_ms <= ot_h.cumulative_ms else max(missing_positions)
+                        )
+
+            missing_identities = _infer_missing_2010_drivers(state)
+            # Reconstruir cada coche ausente usando el delta_front_ms exacto del coche inmediatamente detras
+            for i_miss, m_pos in enumerate(missing_positions):
+                is_me = (m_pos == player_missing_pos)
+                slot_idx = pidx if is_me else (23 if pidx == 22 else 22)
+
+                car_ahead = by_pos.get(m_pos - 1)
+                car_behind = by_pos.get(m_pos + 1)
+
+                # Calcular delta_leader_ms y delta_front_ms exactos a partir del coche de detras y delante
+                if car_behind and car_behind["delta_leader_ms"] > 0:
+                    my_delta_leader_ms = max(0, car_behind["delta_leader_ms"] - car_behind["delta_front_ms"])
+                elif car_ahead:
+                    my_delta_leader_ms = car_ahead["delta_leader_ms"] + 700
+                else:
+                    my_delta_leader_ms = 0
+
+                if m_pos == 1:
+                    my_delta_front_ms = 0
+                elif car_ahead:
+                    my_delta_front_ms = max(100, my_delta_leader_ms - car_ahead["delta_leader_ms"])
+                else:
+                    my_delta_front_ms = 700
+
+                # Vuelta actual, tiempos y neumatico desde SessionHistory (11) / TyreSets (12) o coches adyacentes
+                sh = state.session_history.get(slot_idx)
+                ref_car = car_ahead or car_behind or rows[0]
+                lap_num = sh.num_laps if (sh and sh.num_laps > 0) else ref_car["lap"]
+                last_ms = sh.last_lap_ms if (sh and sh.last_lap_ms > 0) else ref_car["last_lap_ms"]
+                best_ms = sh.best_lap_ms if (sh and sh.best_lap_ms > 0) else state.best_laps.get(slot_idx, last_ms)
+                pits_cnt = max(0, sh.num_stints - 1) if (sh and sh.num_stints > 0) else ref_car["pits"]
+
+                if slot_idx in state.fitted_tyres or slot_idx in state.session_history:
+                    tyre_label = compound_str(state, slot_idx)
+                else:
+                    tyre_label = ref_car["tyre"]
+
+                if 0 <= slot_idx < len(state.participants) and state.participants[slot_idx].name:
+                    dname = state.participants[slot_idx].name
+                    tname = team_name(state, slot_idx, dname)
+                else:
+                    ident_idx = 0 if is_me else min(1, len(missing_identities) - 1)
+                    dname, tname = missing_identities[ident_idx]
+
+                synth_row = {
+                    "idx": slot_idx,
+                    "pos": m_pos,
+                    "name": dname,
+                    "team": tname,
+                    "lap": lap_num,
+                    "last_lap_ms": last_ms,
+                    "last_lap": fmt_ms(last_ms),
+                    "best_lap": fmt_ms(best_ms),
+                    "delta_front_ms": my_delta_front_ms,
+                    "delta_leader_ms": my_delta_leader_ms,
+                    "gap_front": fmt_delta(my_delta_front_ms),
+                    "gap_leader": fmt_delta(my_delta_leader_ms),
+                    "tyre": tyre_label,
+                    "pits": pits_cnt,
+                    "pit_status": "",
+                    "penalties_s": 0,
+                    "warnings": 0,
+                    "status": "active",
+                    "is_player": is_me,
+                }
+                rows.append(synth_row)
+                by_pos[m_pos] = synth_row
+
     rows.sort(key=lambda r: r["pos"])
     return rows[:limit]
 
@@ -90,7 +255,7 @@ def build_race_context(state: RaceState) -> str:
     pidx = state.player_idx
     s = state.session
     if s:
-        track = L.TRACKS.get(s.track_id, f"Track #{s.track_id}")
+        track = L.resolve_track_name(s.track_id, s.track_length, state.swofty_track_key)
         stype = L.SESSION_TYPES.get(s.session_type, "Session")
         weather = L.WEATHER.get(s.weather, "unknown")
         sc = L.SAFETY_CAR.get(s.safety_car, "none")
@@ -112,7 +277,7 @@ def build_race_context(state: RaceState) -> str:
             if fc_parts:
                 lines.append("Weather Forecast: " + ", ".join(fc_parts))
 
-    standings = build_standings(state, limit=22)
+    standings = build_standings(state, limit=24)
     player_row = next((r for r in standings if r["is_player"]), None)
     if player_row:
         pos = player_row["pos"]
@@ -128,12 +293,12 @@ def build_race_context(state: RaceState) -> str:
         if ahead:
             lines.append(
                 f"Car Ahead (P{ahead['pos']}): {ahead['name']} ({ahead['team']}) "
-                f"at {player_row['gap_front']} on {ahead['tyre']}"
+                f"at {player_row['gap_front']} on {ahead['tyre']} (last lap {ahead['last_lap']})"
             )
         if behind:
             lines.append(
                 f"Car Behind (P{behind['pos']}): {behind['name']} ({behind['team']}) "
-                f"at {behind['gap_front']} behind on {behind['tyre']}"
+                f"at {behind['gap_front']} behind on {behind['tyre']} (last lap {behind['last_lap']})"
             )
 
     if 0 <= pidx < len(state.status):
@@ -170,7 +335,7 @@ def build_race_context(state: RaceState) -> str:
 
     if standings:
         top_str = []
-        for r in standings[:15]:
+        for r in standings[:24]:
             me = " [YOU]" if r["is_player"] else ""
             pit = f" [{r['pit_status']}]" if r["pit_status"] else ""
             st_tag = f" ({r['status']})" if r["status"] != "active" else ""

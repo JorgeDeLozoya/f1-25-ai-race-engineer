@@ -1,13 +1,153 @@
 """Tablas de traduccion de IDs del juego a texto (Ingles y Espanol)."""
+from __future__ import annotations
 
 TRACKS = {
-    0: "Melbourne", 2: "Shanghai", 3: "Sakhir", 4: "Catalunya", 5: "Mónaco",
-    6: "Montreal", 7: "Silverstone", 9: "Hungaroring", 10: "Spa-Francorchamps", 11: "Monza",
-    12: "Singapur", 13: "Suzuka", 14: "Abu Dhabi", 15: "Austin", 16: "Interlagos",
-    17: "Red Bull Ring", 19: "México", 20: "Bakú", 26: "Zandvoort", 27: "Imola",
-    29: "Jeddah", 30: "Miami", 31: "Las Vegas", 32: "Qatar",
-    39: "Silverstone Inverso", 40: "Red Bull Ring Inverso", 41: "Zandvoort Inverso",
+    0: "Melbourne",
+    1: "Paul Ricard",
+    2: "Shanghai",
+    3: "Sakhir (Bahréin)",
+    4: "Catalunya",
+    5: "Mónaco",
+    6: "Montreal",
+    7: "Silverstone",
+    8: "Hockenheim",
+    9: "Hungaroring",
+    10: "Spa-Francorchamps",
+    11: "Monza",
+    12: "Singapur",
+    13: "Suzuka",
+    14: "Abu Dhabi",
+    15: "Austin",
+    16: "Interlagos",
+    17: "Red Bull Ring",
+    18: "Sochi",
+    19: "México",
+    20: "Bakú",
+    21: "Sakhir Corto",
+    22: "Silverstone Corto",
+    23: "Austin Corto",
+    24: "Suzuka Corto",
+    25: "Hanoi",
+    26: "Zandvoort",
+    27: "Imola",
+    28: "Portimão",
+    29: "Jeddah",
+    30: "Miami",
+    31: "Las Vegas",
+    32: "Qatar (Losail)",
+    39: "Silverstone Inverso",
+    40: "Red Bull Ring Inverso",
+    41: "Zandvoort Inverso",
 }
+
+# Longitudes aproximadas en metros para identificar circuitos (incluidos mods clasicos en Swofty
+# cuando track_id == -1 y el paquete 200 aun no ha llegado)
+TRACK_LENGTH_MAP = [
+    (3337, "Mónaco"),
+    (4259, "Zandvoort"),
+    (4309, "Interlagos"),
+    (4318, "Red Bull Ring"),
+    (4361, "Montreal"),
+    (4381, "Hungaroring"),
+    (4411, "Magny-Cours"),
+    (4574, "Hockenheim"),
+    (4653, "Portimão"),
+    (4657, "Catalunya"),
+    (4909, "Imola"),
+    (4940, "Singapur"),
+    (5063, "Singapur"),
+    (5148, "Nürburgring"),
+    (5278, "Melbourne"),
+    (5281, "Abu Dhabi"),
+    (5303, "Melbourne"),
+    (5338, "Estambul"),
+    (5412, "Sakhir (Bahréin)"),
+    (5419, "Valencia"),
+    (5451, "Shanghai"),
+    (5513, "Austin"),
+    (5543, "Sepang (Malasia)"),
+    (5554, "Abu Dhabi"),
+    (5615, "Yeongam (Corea)"),
+    (5793, "Monza"),
+    (5807, "Suzuka"),
+    (5842, "Paul Ricard"),
+    (5848, "Sochi"),
+    (5891, "Silverstone"),
+    (6003, "Bakú"),
+    (6174, "Jeddah"),
+    (6201, "Las Vegas"),
+    (7004, "Spa-Francorchamps"),
+]
+
+
+def resolve_track_name(track_id: int, track_length: int = 0, swofty_track_key: str = "") -> str:
+    """Resuelve el nombre legible del circuito a partir de Swofty Track Key, Track ID o longitud."""
+    if swofty_track_key:
+        slug = swofty_track_key.rpartition("/")[2] or swofty_track_key
+        slug_clean = slug.replace("_", " ").replace("-", " ").strip()
+        low = slug_clean.lower()
+        for key, friendly in {
+            "hockenheim": "Hockenheim",
+            "nurburgring": "Nürburgring",
+            "istanbul": "Estambul",
+            "sepang": "Sepang (Malasia)",
+            "malaysia": "Sepang (Malasia)",
+            "valencia": "Valencia",
+            "yeongam": "Yeongam (Corea)",
+            "korea": "Yeongam (Corea)",
+            "magny": "Magny-Cours",
+            "imola": "Imola",
+            "portimao": "Portimão",
+            "mugello": "Mugello",
+            "jerez": "Jerez",
+            "indianapolis": "Indianápolis",
+            "fuji": "Fuji",
+            "kyalami": "Kyalami",
+            "adelaide": "Adelaida",
+            "estoril": "Estoril",
+            "brands": "Brands Hatch",
+            "bahrain": "Sakhir",
+            "catalunya": "Catalunya",
+            "barcelona": "Catalunya",
+            "monaco": "Mónaco",
+            "montreal": "Montreal",
+            "canada": "Montreal",
+            "silverstone": "Silverstone",
+            "hungaroring": "Hungaroring",
+            "spa": "Spa-Francorchamps",
+            "monza": "Monza",
+            "singapore": "Singapur",
+            "suzuka": "Suzuka",
+            "yas": "Abu Dhabi",
+            "abu dhabi": "Abu Dhabi",
+            "interlagos": "Interlagos",
+            "brazil": "Interlagos",
+            "melbourne": "Melbourne",
+            "australia": "Melbourne",
+            "shanghai": "Shanghai",
+            "china": "Shanghai",
+        }.items():
+            if key in low:
+                return friendly
+        if slug_clean:
+            return slug_clean.title()
+
+    if track_id in TRACKS:
+        return TRACKS[track_id]
+
+    if track_length > 1000:
+        best_name = None
+        best_diff = 999999
+        for length_m, name in TRACK_LENGTH_MAP:
+            diff = abs(track_length - length_m)
+            if diff < best_diff:
+                best_diff = diff
+                best_name = name
+        if best_name and best_diff <= 95:
+            return best_name
+
+    return "el circuito"
+
 
 SESSION_TYPES = {
     0: "Unknown", 1: "Practice 1", 2: "Practice 2", 3: "Practice 3", 4: "Short Practice",
@@ -37,6 +177,39 @@ TEAMS = {
     5: "Alpine", 6: "Racing Bulls", 7: "Haas", 8: "McLaren", 9: "Sauber",
     41: "F1 Generic", 104: "Custom Team", 129: "Konnersport", 142: "APXGP",
     154: "APXGP", 155: "Konnersport",
+    # IDs de formato 2026 / Swofty (476..486)
+    476: "Mercedes", 477: "Ferrari", 478: "Red Bull", 479: "Williams", 480: "Aston Martin",
+    481: "Alpine", 482: "Racing Bulls", 483: "Haas", 484: "McLaren", 485: "Audi / Sauber",
+    486: "Cadillac",
+}
+
+# Mapeo opcional de pilotos clasicos/actuales a su escuderia cuando se usa un mod de temporada (p.ej. 2010)
+CLASSIC_DRIVER_TEAMS = {
+    "SENNA": "HRT (Hispania)",
+    "CHANDHOK": "HRT (Hispania)",
+    "ALONSO": "Ferrari",
+    "MASSA": "Ferrari",
+    "HAMILTON": "McLaren",
+    "BUTTON": "McLaren",
+    "VETTEL": "Red Bull",
+    "WEBBER": "Red Bull",
+    "SCHUMACHER": "Mercedes",
+    "ROSBERG": "Mercedes",
+    "KUBICA": "Renault",
+    "PETROV": "Renault",
+    "BARRICHELLO": "Williams",
+    "HÜLKENBERG": "Williams",
+    "HULKENBERG": "Williams",
+    "SUTIL": "Force India",
+    "LIUZZI": "Force India",
+    "DE LA ROSA": "Sauber",
+    "KOBAYASHI": "Sauber",
+    "BUEMI": "Toro Rosso",
+    "ALGUERSUARI": "Toro Rosso",
+    "TRULLI": "Lotus Racing",
+    "KOVALAINEN": "Lotus Racing",
+    "GLOCK": "Virgin Racing",
+    "DI GRASSI": "Virgin Racing",
 }
 
 COMPOUNDS = {16: "Soft", 17: "Medium", 18: "Hard", 7: "Intermediate", 8: "Wet",

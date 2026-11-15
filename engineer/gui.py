@@ -215,11 +215,11 @@ class PitWallWindow:
             text="",
             bg="#0E121B",
             fg=self.TEXT,
-            font=("Consolas", 9),
+            font=("Consolas", 8),
             justify=tk.LEFT,
             anchor="nw",
             padx=8,
-            pady=8,
+            pady=6,
         )
         self.standings_box.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
 
@@ -384,11 +384,11 @@ class PitWallWindow:
         ).pack(side=tk.LEFT, padx=(0, 6))
 
         quick_queries = [
+            ("🏎️ ¿Posición / Coche?", "¿En qué posición voy y qué coche llevo?"),
+            ("📈 ¿Le recorto?", "¿Cómo va mi ritmo y en cuántas vueltas pillo al de delante?"),
+            ("🔧 Subviraje / Setup", "El coche no gira en curva, tengo mucho subviraje"),
             ("🛠️ ¿Debería parar?", "¿Debería parar en boxes ahora? ¿Cuál es la estrategia?"),
-            ("⏱️ Última Vuelta / Crono", "¿Cuál es mi último tiempo de vuelta y cómo va mi ritmo?"),
-            ("🇪🇸 Top 5 Posiciones", "¿Cuáles son las cinco primeras posiciones ahora mismo?"),
             ("🛞 Neumáticos", "¿Cómo tengo las ruedas y cuántas vueltas aguantan?"),
-            ("⛽ Gasolina y ERS", "¿Cuánto combustible me queda y cómo tengo la batería?"),
             ("🤬 Ser Borde (Cállate)", "Cállate ya pesado, déjame conducir en paz"),
             ("🍕 Fuera de Lugar", "¿Qué opinas de Pedro Sánchez y qué cenamos hoy?"),
         ]
@@ -529,13 +529,13 @@ class PitWallWindow:
             st = self.app.telemetry.state
             connected = st.connected
             pkt_count = st.packet_count
-            standings = build_standings(st, limit=14) if connected else []
+            standings = build_standings(st, limit=24) if connected else []
             rep = analyze_strategy(st, self.cfg.driver_name)
-            wear_wheels = [0.0, 0.0, 0.0, 0.0]
             if connected and 0 <= st.player_idx < len(st.damage):
                 wear_wheels = list(st.damage[st.player_idx].tyre_wear)
             else:
-                wear_wheels = [26.0, 28.0, 33.0, 31.0]
+                w_est = rep.max_wear_pct
+                wear_wheels = [max(0.0, w_est - 3.0), max(0.0, w_est - 2.0), w_est, max(0.0, w_est - 1.0)]
 
         if connected:
             self.udp_badge.configure(
@@ -545,9 +545,9 @@ class PitWallWindow:
             )
             lines = []
             for r in standings:
-                you = " ◄" if r["is_player"] else ""
+                you = " ◄ TÚ" if r["is_player"] else ""
                 lines.append(
-                    f"P{r['pos']:<2} {r['name'][:11]:<11} {r['gap_leader']:>6}  {r['tyre']:<11}{you}"
+                    f"P{r['pos']:<2} {r['name'][:11]:<11} {r['gap_leader']:>6}  {r['tyre']:<10}{you}"
                 )
             self.standings_box.configure(text="\n".join(lines) if lines else "Recibiendo parrilla...")
         else:
@@ -592,9 +592,10 @@ class PitWallWindow:
             )
 
         strat_lines = [
+            f"MONOPLAZA: {rep.player_driver} · {rep.player_team}",
             f"CIRCUITO : {rep.track_name} ({rep.session_name})",
             f"VUELTA   : {rep.current_lap} / {rep.total_laps}  (Quedan {rep.laps_remaining} vueltas)",
-            f"POSICIÓN : P{rep.position} / {rep.total_cars}",
+            f"POSICIÓN : P{rep.position} / {rep.total_cars}  (Última: {rep.last_lap_str})",
             f"DELANTE  : {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) [{rep.ahead_tyre}]",
             f"DETRÁS   : {rep.behind_name} (-{rep.behind_gap_s:.1f}s) [{rep.behind_tyre}]",
             "─" * 42,
