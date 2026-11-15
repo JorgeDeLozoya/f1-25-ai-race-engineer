@@ -1,8 +1,38 @@
 """Procesador DSP para dar sonido autentico de radio de Formula 1 TV + Beep FIA + Ambiente de Muro y F1 pasando."""
 from __future__ import annotations
 
+from pathlib import Path
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
+
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+_REAL_BEEP_CACHE: dict[tuple[str, int], np.ndarray] = {}
+
+
+def _get_real_beep(which: str, sr: int) -> np.ndarray:
+    """Carga y remuestrea el pitido de radio F1 TV oficial grabado de retransmision."""
+    key = (which, sr)
+    if key in _REAL_BEEP_CACHE:
+        return _REAL_BEEP_CACHE[key]
+    wav_path = ASSETS_DIR / f"f1_beep_{which}.wav"
+    if wav_path.exists():
+        try:
+            data, src_sr = sf.read(str(wav_path), dtype="float32")
+            if data.ndim > 1:
+                data = data.mean(axis=1)
+            if src_sr != sr:
+                new_len = int(round(len(data) * float(sr) / float(src_sr)))
+                data = np.interp(
+                    np.linspace(0, len(data), new_len, endpoint=False),
+                    np.arange(len(data)),
+                    data,
+                ).astype(np.float32)
+            _REAL_BEEP_CACHE[key] = data
+            return data
+        except Exception:
+            pass
+    return np.zeros(0, dtype=np.float32)
 
 
 def _bandpass_fft(samples: np.ndarray, sr: int, low_hz: float = 340.0, high_hz: float = 3300.0) -> np.ndarray:
@@ -25,17 +55,40 @@ def _bandpass_fft(samples: np.ndarray, sr: int, low_hz: float = 340.0, high_hz: 
     return np.fft.irfft(spec, n=n).astype(np.float32)
 
 
-def _synth_chirp_open(sr: int, intensity: float = 0.85, style: str = "f1_tv") -> np.ndarray:
-    """Sintetiza el pitido de apertura de radio segun el estilo elegido (F1 TV, FIA Pit Wall, Walkie Clasico)."""
-    style = (style or "f1_tv").lower()
+def _synth_chirp_open(sr: int, intensity: float = 0.85, style: str = "f1_tv_real") -> np.ndarray:
+    """Sintetiza o carga el pitido de apertura de radio segun el estilo elegido."""
+    style = (style or "f1_tv_real").lower()
     if style == "off":
         return np.zeros(int(sr * 0.01), dtype=np.float32)
 
-    rng = np.random.default_rng(42)
-    click = rng.normal(0, 0.09, int(sr * 0.015)).astype(np.float32)
+    # 1. Pitido Oficial F1 TV Broadcast (Audio Real del usuario)
+    if style in ("f1_tv_real", "f1_tv", "official"):
+        real = _get_real_beep("open", sr)
+        if len(real) > 0:
+            return (real * (0.65 + 0.35 * intensity)).astype(np.float32)
 
+    # 2. Pitido F1 TV Sintético Anterior (traído de vuelta como opción)
+    if style in ("f1_tv_synth", "synthetic", "synth"):
+        rng = np.random.default_rng(42)
+        click = rng.normal(0, 0.09, int(sr * 0.015)).astype(np.float32)
+        t1 = np.linspace(0, 0.048, int(sr * 0.048), endpoint=False, dtype=np.float32)
+        env1 = np.hanning(len(t1)) * np.exp(-t1 * 12.0)
+        tone1 = (np.sin(2 * np.pi * 1980.0 * t1) + 0.25 * np.sin(2 * np.pi * 3960.0 * t1)) * env1
+        gap = np.zeros(int(sr * 0.016), dtype=np.float32)
+        t2 = np.linspace(0, 0.078, int(sr * 0.078), endpoint=False, dtype=np.float32)
+        env2 = np.hanning(len(t2)) * np.exp(-t2 * 9.5)
+        tone2 = (
+            0.85 * np.sin(2 * np.pi * 2520.0 * t2)
+            + 0.35 * np.sin(2 * np.pi * 1680.0 * t2)
+        ) * env2
+        pad = np.zeros(int(sr * 0.018), dtype=np.float32)
+        chirp = np.concatenate([click, tone1 * 0.26, gap, tone2 * 0.30, pad])
+        return (chirp * (0.45 + 0.55 * intensity)).astype(np.float32)
+
+    # 3. Chirp Digital FIA Muro de Boxes
     if style == "fia_pitwall":
-        # Chirp digital corto de intercomunicador de muro FIA (2350 Hz -> 2750 Hz)
+        rng = np.random.default_rng(42)
+        click = rng.normal(0, 0.09, int(sr * 0.015)).astype(np.float32)
         t1 = np.linspace(0, 0.038, int(sr * 0.038), endpoint=False, dtype=np.float32)
         tone1 = np.sin(2 * np.pi * 2350.0 * t1) * np.hanning(len(t1))
         gap = np.zeros(int(sr * 0.010), dtype=np.float32)
@@ -45,8 +98,9 @@ def _synth_chirp_open(sr: int, intensity: float = 0.85, style: str = "f1_tv") ->
         chirp = np.concatenate([click, tone1 * 0.24, gap, tone2 * 0.28, pad])
         return (chirp * (0.45 + 0.55 * intensity)).astype(np.float32)
 
+    # 4. Walkie Clásico F1 Años 2000 (Relé + Tono Analógico)
     if style == "classic_v10":
-        # Walkie analogico clasico anos 2000 (clic de rele fuerte + pitido 1560 Hz)
+        rng = np.random.default_rng(42)
         relay = rng.normal(0, 0.16, int(sr * 0.022)).astype(np.float32)
         t = np.linspace(0, 0.065, int(sr * 0.065), endpoint=False, dtype=np.float32)
         tone = (0.8 * np.sin(2 * np.pi * 1560.0 * t) + 0.2 * np.sin(2 * np.pi * 3120.0 * t)) * np.hanning(len(t))
@@ -54,31 +108,23 @@ def _synth_chirp_open(sr: int, intensity: float = 0.85, style: str = "f1_tv") ->
         chirp = np.concatenate([relay, tone * 0.28, pad])
         return (chirp * (0.45 + 0.55 * intensity)).astype(np.float32)
 
-    # Por defecto: "f1_tv" -> Doble pitido oficial de apertura de Team Radio estilo F1 TV Broadcast
-    t1 = np.linspace(0, 0.048, int(sr * 0.048), endpoint=False, dtype=np.float32)
-    env1 = np.hanning(len(t1)) * np.exp(-t1 * 12.0)
-    tone1 = (np.sin(2 * np.pi * 1980.0 * t1) + 0.25 * np.sin(2 * np.pi * 3960.0 * t1)) * env1
-
-    gap = np.zeros(int(sr * 0.016), dtype=np.float32)
-
-    # Tono 2 caracteristico F1 TV (2520 Hz + quinta inferior 1680 Hz con ligero decay)
-    t2 = np.linspace(0, 0.078, int(sr * 0.078), endpoint=False, dtype=np.float32)
-    env2 = np.hanning(len(t2)) * np.exp(-t2 * 9.5)
-    tone2 = (
-        0.85 * np.sin(2 * np.pi * 2520.0 * t2)
-        + 0.35 * np.sin(2 * np.pi * 1680.0 * t2)
-    ) * env2
-
-    pad = np.zeros(int(sr * 0.018), dtype=np.float32)
-    chirp = np.concatenate([click, tone1 * 0.26, gap, tone2 * 0.30, pad])
-    return (chirp * (0.45 + 0.55 * intensity)).astype(np.float32)
+    real = _get_real_beep("open", sr)
+    if len(real) > 0:
+        return (real * (0.65 + 0.35 * intensity)).astype(np.float32)
+    return np.zeros(int(sr * 0.01), dtype=np.float32)
 
 
-def _synth_squelch_close(sr: int, intensity: float = 0.85, style: str = "f1_tv") -> np.ndarray:
+def _synth_squelch_close(sr: int, intensity: float = 0.85, style: str = "f1_tv_real") -> np.ndarray:
     """Cola de squelch + clic final y pitido grave de cierre al terminar la radio."""
-    style = (style or "f1_tv").lower()
+    style = (style or "f1_tv_real").lower()
     if style == "off":
         return np.zeros(int(sr * 0.01), dtype=np.float32)
+
+    # 1. Pitido Oficial F1 TV Broadcast (Audio Real de cierre)
+    if style in ("f1_tv_real", "f1_tv", "official"):
+        real = _get_real_beep("close", sr)
+        if len(real) > 0:
+            return (real * (0.65 + 0.35 * intensity)).astype(np.float32)
 
     rng = np.random.default_rng()
     dur = int(sr * 0.090)
@@ -87,7 +133,7 @@ def _synth_squelch_close(sr: int, intensity: float = 0.85, style: str = "f1_tv")
     env = np.linspace(1.0, 0.04, dur, dtype=np.float32)
 
     t_end = np.linspace(0, 0.045, int(sr * 0.045), endpoint=False, dtype=np.float32)
-    f_low = 1440.0 if style == "f1_tv" else (1850.0 if style == "fia_pitwall" else 1180.0)
+    f_low = 1440.0 if style in ("f1_tv_synth", "synthetic") else (1850.0 if style == "fia_pitwall" else 1180.0)
     beep_end = (
         0.7 * np.sin(2 * np.pi * f_low * t_end)
         + 0.3 * np.sin(2 * np.pi * (f_low * 0.66) * t_end)
