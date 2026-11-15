@@ -159,10 +159,14 @@ class VoiceListener(threading.Thread):
     def stop(self) -> None:
         self._stop.set()
 
+    def _beep_now(self) -> None:
+        if self.cfg.radio_beep_enabled and self.cfg.radio_beep_style != "off":
+            play_ack_beep(self.cfg.radio_effect, self.cfg.volume, style=self.cfg.radio_beep_style)
+
     def arm_now(self, seconds: float = 8.0) -> None:
         """Activa la escucha directa sin palabra clave durante unos segundos (ej. tecla PTT)."""
         self.armed_until = time.time() + seconds
-        play_ack_beep(self.cfg.radio_effect, self.cfg.volume)
+        self._beep_now()
         log.info("[RADIO ABIERTA] Escuchando mensaje del piloto durante %.0fs...", seconds)
 
     def _start_ptt_listener(self) -> None:
@@ -281,7 +285,7 @@ class VoiceListener(threading.Thread):
             query = after if after else chosen
             if len(query.split()) >= 2:
                 rec.Reset()
-                play_ack_beep(self.cfg.radio_effect, self.cfg.volume)
+                self._beep_now()
                 self._dispatch(query)
             return
 
@@ -290,7 +294,7 @@ class VoiceListener(threading.Thread):
         if found:
             rec.Reset()
             if len(rest.split()) >= 2:
-                play_ack_beep(self.cfg.radio_effect, self.cfg.volume)
+                self._beep_now()
                 self._dispatch(rest)
             else:
                 self.arm_now(8.0)

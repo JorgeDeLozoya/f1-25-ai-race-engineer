@@ -96,9 +96,15 @@ class RadioSpeaker:
             samples, sr = sf.read(io.BytesIO(mp3_bytes), dtype="float32")
             samples = tighten_pauses(samples, sr, max_pause_ms=70)
             radio_audio = apply_f1_radio_effect(
-                samples, sr,
+                samples,
+                sr,
                 intensity=self.cfg.radio_effect,
                 volume=self.cfg.volume,
+                beep_enabled=self.cfg.radio_beep_enabled,
+                beep_style=self.cfg.radio_beep_style,
+                bg_enabled=self.cfg.radio_bg_enabled,
+                bg_style=self.cfg.radio_bg_style,
+                bg_level=self.cfg.radio_bg_level,
             )
             if save_wav:
                 sf.write(str(save_wav), radio_audio, sr)

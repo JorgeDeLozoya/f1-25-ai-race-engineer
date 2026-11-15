@@ -694,6 +694,66 @@ class PitWallWindow:
             c2, "Volumen General de Radio (%):", 10, 150
         )
 
+        # ---- CONTROLES DE PITIDO "BEEP" F1 TV Y AMBIENTE DE FONDO (F1 PASANDO / GARAJE) ----
+        self.var_radio_beep = tk.BooleanVar(value=self.cfg.radio_beep_enabled)
+        self.var_radio_bg = tk.BooleanVar(value=self.cfg.radio_bg_enabled)
+        toggles_row = tk.Frame(c2, bg=self.CARD)
+        toggles_row.pack(fill=tk.X, padx=14, pady=(4, 2))
+
+        self.chk_radio_beep = tk.Checkbutton(
+            toggles_row,
+            text="🔊 Activar Pitido 'Beep' F1 TV",
+            variable=self.var_radio_beep,
+            bg=self.CARD,
+            fg=self.CYAN,
+            selectcolor=self.INPUT_BG,
+            activebackground=self.CARD,
+            activeforeground=self.CYAN,
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+        )
+        self.chk_radio_beep.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.chk_radio_bg = tk.Checkbutton(
+            toggles_row,
+            text="🏎️ Activar Sonido de Fondo (F1 / Muro)",
+            variable=self.var_radio_bg,
+            bg=self.CARD,
+            fg=self.GREEN,
+            selectcolor=self.INPUT_BG,
+            activebackground=self.CARD,
+            activeforeground=self.GREEN,
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+        )
+        self.chk_radio_bg.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.lbl_beep_style, self.cmb_beep_style = self._add_combo_row(
+            c2,
+            "Sonido del Pitido de Radio:",
+            [
+                "🔊 Doble Pitido Oficial F1 TV Broadcast",
+                "📡 Chirp Digital FIA Muro de Boxes",
+                "📻 Walkie Clásico F1 (Años 2000)",
+                "🔇 Sin Pitido (Solo Voz)",
+            ],
+        )
+
+        self.lbl_bg_style, self.cmb_bg_style = self._add_combo_row(
+            c2,
+            "Ambiente de Fondo en la Radio:",
+            [
+                "🏎️ Muro de Boxes + F1 Pasando a Fondo (Doppler V6)",
+                "🔧 Garaje / Pit Lane + Pistolas Neumáticas",
+                "💻 Muro de Boxes Sutil (Servidores y Telemetría)",
+                "🔇 Sin Ambiente de Fondo (Radio Limpia)",
+            ],
+        )
+
+        self.lbl_bg_lvl, self.scale_bg_lvl = self._add_slider_row(
+            c2, "Volumen de F1s / Ambiente Fondo (%):", 0, 100
+        )
+
         # ---- CARD 3: HUD DE RADIO F1 TV EN EL JUEGO ----
         c3 = self._make_settings_card(grid_wrap, 1, 0)
         self.c3_header = self._make_card_header(c3, "📺 HUD DE RADIO F1 TV DENTRO DEL JUEGO")
@@ -1054,6 +1114,17 @@ class PitWallWindow:
         self.ent_ptt.insert(0, self.cfg.ptt_key.upper())
         self.scale_fx.set(int(round(self.cfg.radio_effect * 100)))
         self.scale_vol.set(int(round(self.cfg.volume * 100)))
+        self.var_radio_beep.set(bool(self.cfg.radio_beep_enabled))
+        self.var_radio_bg.set(bool(self.cfg.radio_bg_enabled))
+        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        self.cmb_beep_style.current(
+            beep_styles.index(self.cfg.radio_beep_style) if self.cfg.radio_beep_style in beep_styles else 0
+        )
+        bg_styles = ["pitwall_f1_flyby", "pit_garage_guns", "pitwall_telemetry", "off"]
+        self.cmb_bg_style.current(
+            bg_styles.index(self.cfg.radio_bg_style) if self.cfg.radio_bg_style in bg_styles else 0
+        )
+        self.scale_bg_lvl.set(int(round(self.cfg.radio_bg_level * 100)))
         # 7. HUD
         hmodes = ["auto", "always", "off"]
         self.cmb_hud_mode.current(hmodes.index(self.cfg.hud_mode) if self.cfg.hud_mode in hmodes else 0)
@@ -1098,6 +1169,13 @@ class PitWallWindow:
         self.cfg.ptt_key = (self.ent_ptt.get().strip() or "f9").lower()
         self.cfg.radio_effect = float(self.scale_fx.get()) / 100.0
         self.cfg.volume = float(self.scale_vol.get()) / 100.0
+        self.cfg.radio_beep_enabled = bool(self.var_radio_beep.get())
+        self.cfg.radio_bg_enabled = bool(self.var_radio_bg.get())
+        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        self.cfg.radio_beep_style = beep_styles[max(0, self.cmb_beep_style.current())]
+        bg_styles = ["pitwall_f1_flyby", "pit_garage_guns", "pitwall_telemetry", "off"]
+        self.cfg.radio_bg_style = bg_styles[max(0, self.cmb_bg_style.current())]
+        self.cfg.radio_bg_level = float(self.scale_bg_lvl.get()) / 100.0
 
         hmodes = ["auto", "always", "off"]
         self.cfg.hud_mode = hmodes[max(0, self.cmb_hud_mode.current())]
@@ -1348,6 +1426,60 @@ class PitWallWindow:
         self.btn_bind_key.configure(text="🎹 Bind Key..." if en else "🎹 Detectar Tecla...")
         self.lbl_fx.configure(text="FIA Radio DSP Effect (%):" if en else "Efecto DSP de Radio FIA (%):")
         self.lbl_vol.configure(text="Master Radio Volume (%):" if en else "Volumen General de Radio (%):")
+        self.chk_radio_beep.configure(
+            text="🔊 Enable F1 TV 'Beep' Sound" if en else "🔊 Activar Pitido 'Beep' F1 TV"
+        )
+        self.chk_radio_bg.configure(
+            text="🏎️ Enable Background Ambience (F1 Flybys)" if en else "🏎️ Activar Sonido de Fondo (F1 / Muro)"
+        )
+        self.lbl_beep_style.configure(text="Radio Beep Sound Style:" if en else "Sonido del Pitido de Radio:")
+        beep_styles = ["f1_tv", "fia_pitwall", "classic_v10", "off"]
+        self.cmb_beep_style.configure(
+            values=(
+                [
+                    "🔊 Official F1 TV Broadcast Double-Beep",
+                    "📡 FIA Pit Wall Digital Chirp",
+                    "📻 Classic F1 Analog Walkie (2000s)",
+                    "🔇 No Beep (Voice Only)",
+                ]
+                if en
+                else [
+                    "🔊 Doble Pitido Oficial F1 TV Broadcast",
+                    "📡 Chirp Digital FIA Muro de Boxes",
+                    "📻 Walkie Clásico F1 (Años 2000)",
+                    "🔇 Sin Pitido (Solo Voz)",
+                ]
+            )
+        )
+        self.cmb_beep_style.current(
+            beep_styles.index(self.cfg.radio_beep_style) if self.cfg.radio_beep_style in beep_styles else 0
+        )
+
+        self.lbl_bg_style.configure(text="Radio Background Ambience:" if en else "Ambiente de Fondo en la Radio:")
+        bg_styles = ["pitwall_f1_flyby", "pit_garage_guns", "pitwall_telemetry", "off"]
+        self.cmb_bg_style.configure(
+            values=(
+                [
+                    "🏎️ Pit Wall + F1 Cars Passing at 320 km/h (Doppler V6)",
+                    "🔧 Pit Garage + Pneumatic Wheel Guns",
+                    "💻 Subtle Pit Wall (Telemetry Servers Only)",
+                    "🔇 No Background Ambience (Clean Radio)",
+                ]
+                if en
+                else [
+                    "🏎️ Muro de Boxes + F1 Pasando a Fondo (Doppler V6)",
+                    "🔧 Garaje / Pit Lane + Pistolas Neumáticas",
+                    "💻 Muro de Boxes Sutil (Servidores y Telemetría)",
+                    "🔇 Sin Ambiente de Fondo (Radio Limpia)",
+                ]
+            )
+        )
+        self.cmb_bg_style.current(
+            bg_styles.index(self.cfg.radio_bg_style) if self.cfg.radio_bg_style in bg_styles else 0
+        )
+        self.lbl_bg_lvl.configure(
+            text="F1 Flyby / Ambience Volume (%):" if en else "Volumen de F1s / Ambiente Fondo (%):"
+        )
 
         self.c3_header.configure(
             text="📺 IN-GAME F1 TV BROADCAST RADIO HUD"
