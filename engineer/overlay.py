@@ -257,12 +257,13 @@ class RadioHudOverlay:
 
     def _update_identity_from_telemetry(self) -> None:
         id_mode = (getattr(self.cfg, "hud_identity_mode", "auto") or "auto").lower()
-        custom_team = getattr(self.cfg, "hud_custom_team", "Ferrari") or "Ferrari"
-        custom_num = int(getattr(self.cfg, "hud_custom_number", 16) or 16)
+        custom_team = getattr(self.cfg, "hud_custom_team", "Aston Martin") or "Aston Martin"
+        custom_num = int(getattr(self.cfg, "hud_custom_number", 14) or 14)
 
         with self.app.telemetry.lock:
             st = self.app.telemetry.state
-            if id_mode == "custom" or not st.connected:
+            if id_mode == "custom":
+                # MODO MANUAL: Fijado expresamente por el usuario en los ajustes
                 drv, color, badge, num = L.resolve_radio_identity(
                     self.cfg.driver_name,
                     custom_team,
@@ -270,15 +271,21 @@ class RadioHudOverlay:
                     race_number=custom_num,
                 )
             else:
+                # MODO AUTOMÁTICO: Detecta escudería, color y dorsal del coche en carrera
                 rep = analyze_strategy(st, self.cfg.driver_name)
-                r_num = 0
-                if 0 <= st.player_idx < len(st.participants):
+                r_num = getattr(rep, "player_race_number", 0)
+                if r_num <= 0 and 0 <= st.player_idx < len(st.participants):
                     r_num = st.participants[st.player_idx].race_number
+                if r_num <= 0:
+                    r_num = L.DRIVER_NUMBERS.get((rep.player_driver or "").upper(), 0)
+                if r_num <= 0:
+                    r_num = 14
+
                 drv, color, badge, num = L.resolve_radio_identity(
                     rep.player_driver,
                     rep.player_team,
                     fallback_driver=self.cfg.driver_name,
-                    race_number=r_num or custom_num,
+                    race_number=r_num,
                 )
         self._drv_name = drv
         self._team_color = color

@@ -306,8 +306,52 @@ def resolve_radio_identity(
     if team_clean not in TEAM_STYLES and drv_display in CLASSIC_DRIVER_TEAMS:
         team_clean = CLASSIC_DRIVER_TEAMS[drv_display]
 
-    color_hex, badge_code = TEAM_STYLES.get(team_clean, ("#FF1E27", "F1"))
-    num = race_number if race_number and 0 < race_number < 100 else DRIVER_NUMBERS.get(drv_display, 16)
+    if team_clean in TEAM_STYLES:
+        color_hex, badge_code = TEAM_STYLES[team_clean]
+    else:
+        # Búsqueda parcial e insensible a mayúsculas/minúsculas para nombres largos de escudería
+        matched = False
+        t_low = team_clean.lower()
+        for k, v in TEAM_STYLES.items():
+            k_low = k.lower()
+            if k_low in t_low or t_low in k_low:
+                color_hex, badge_code = v
+                matched = True
+                break
+        if not matched:
+            if "aston" in t_low:
+                color_hex, badge_code = ("#00E7A7", "AMR")
+            elif "ferrari" in t_low:
+                color_hex, badge_code = ("#FF1E27", "FER")
+            elif "mclaren" in t_low:
+                color_hex, badge_code = ("#FF8000", "MCL")
+            elif "red bull" in t_low or "redbull" in t_low:
+                color_hex, badge_code = ("#4781D7", "RBR")
+            elif "mercedes" in t_low:
+                color_hex, badge_code = ("#00D2BE", "MER")
+            elif "williams" in t_low:
+                color_hex, badge_code = ("#00A0DE", "WIL")
+            elif "alpine" in t_low:
+                color_hex, badge_code = ("#0090FF", "ALP")
+            elif "sauber" in t_low or "kick" in t_low:
+                color_hex, badge_code = ("#52E252", "KICK")
+            elif "haas" in t_low:
+                color_hex, badge_code = ("#B6BABD", "HAS")
+            elif "bulls" in t_low or "rb" in t_low:
+                color_hex, badge_code = ("#6692FF", "RB")
+            else:
+                color_hex, badge_code = ("#FF1E27", "F1")
+
+    if race_number and 0 < race_number < 100:
+        num = race_number
+    elif drv_display in DRIVER_NUMBERS:
+        num = DRIVER_NUMBERS[drv_display]
+    elif (fallback_driver or "").strip().upper() in DRIVER_NUMBERS:
+        num = DRIVER_NUMBERS[(fallback_driver or "").strip().upper()]
+    elif badge_code == "AMR":
+        num = 14
+    else:
+        num = 14
     return drv_display, color_hex, badge_code, num
 
 COMPOUNDS = {16: "Soft", 17: "Medium", 18: "Hard", 7: "Intermediate", 8: "Wet",

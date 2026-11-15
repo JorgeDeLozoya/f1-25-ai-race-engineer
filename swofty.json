@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "jorge.ai-race-engineer",
   "name": "AI Race Engineer (Voice + UDP)",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Jorge",
   "description": "Ingeniero de pista por voz con IA (Español e Inglés), efecto de radio F1, lectura de telemetría UDP en tiempo real y avisos proactivos.",
   "license": "MIT",
@@ -22,6 +22,6 @@
     "commands": [
       { "name": "engineer", "about": "Show AI Race Engineer status or test a radio question" }
     ],
-    "startup": true
+    "startup": false
   }
 }
