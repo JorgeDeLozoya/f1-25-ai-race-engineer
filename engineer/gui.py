@@ -1245,23 +1245,23 @@ class PitWallWindow:
 
         quick_queries = (
             [
-                ("🏎️ Position & Car?", "What position am I in and what car am I driving?"),
-                ("📈 Catching Ahead?", "How is my pace and how many laps to catch the car ahead?"),
-                ("🔧 Understeer / Setup", "The car won't turn in, I have massive understeer"),
-                ("🛠️ Should I Box?", "Should I box now? What is the pit strategy?"),
+                ("📋 Plans A/B/C", "What are Plan A, Plan B and Plan C?"),
+                ("⏱️ Rival Pit Stop?", "When did Norris pit and when do you think he will pit?"),
+                ("🤝 Team Orders?", "If I let my teammate pass what benefits do we have?"),
+                ("💢 Argue Strategy", "I don't want to box, your strategy call is wrong"),
                 ("🛞 Tyre Wear", "How are my tyres and how many laps left on them?"),
-                ("🤬 Be Rude (Shut up)", "Shut up man, leave me alone and let me drive"),
-                ("🍕 Off-Topic Test", "Who won the football match last night?"),
+                ("🔧 Understeer / Setup", "The car won't turn in, I have massive understeer"),
+                ("🤬 Shut Up / Stop Yelling", "Stop yelling at me and let me drive"),
             ]
             if en
             else [
-                ("🏎️ ¿Posición / Coche?", "¿En qué posición voy y qué coche llevo?"),
-                ("📈 ¿Le recorto?", "¿Cómo va mi ritmo y en cuántas vueltas pillo al de delante?"),
+                ("📋 Planes A/B/C", "¿Cuáles son el Plan A, Plan B y Plan C?"),
+                ("⏱️ ¿Parada Rival?", "¿Cuándo ha hecho la parada Norris y cuándo crees que parará?"),
+                ("🤝 Órdenes Equipo", "Si dejo adelantar a mi compañero qué beneficios tenemos"),
+                ("💢 Discutir / No Paro", "No quiero parar en boxes, estás equivocado con la estrategia"),
+                ("🛞 Neumáticos", "¿Cómo están los neumáticos y cuántas vueltas me quedan?"),
                 ("🔧 Subviraje / Setup", "El coche no gira en curva, tengo mucho subviraje"),
-                ("🛠️ ¿Debería parar?", "¿Debería parar en boxes ahora? ¿Cuál es la estrategia?"),
-                ("🛞 Neumáticos", "¿Cómo tengo las ruedas y cuántas vueltas aguantan?"),
-                ("🤬 Ser Borde (Cállate)", "Cállate ya pesado, déjame conducir en paz"),
-                ("🍕 Fuera de Lugar", "¿Qué opinas de Pedro Sánchez y qué cenamos hoy?"),
+                ("🤬 Deja de Gritar", "Deja de gritar y déjame conducir en paz"),
             ]
         )
         for btn, (lbl, q) in zip(self._quick_buttons, quick_queries):
@@ -1562,21 +1562,22 @@ class PitWallWindow:
             self.standings_box.configure(text="\n".join(demo_lines))
 
         # 3. Actualizar panel de Estrategia y Coche
+        active_plan = getattr(self.app.brain, "active_plan", "A")
         if "BOX" in rep.box_recommendation:
             self.strategy_banner.configure(
-                text=f"🚨 STRATEGY: {rep.box_recommendation}" if en else f"🚨 ESTRATEGIA: {rep.box_recommendation}",
+                text=f"🚨 PLAN {active_plan}: {rep.box_recommendation}",
                 bg="#4A151B",
                 fg="#FF6B6B",
             )
         elif "OPEN" in rep.box_recommendation or "RAIN" in rep.box_recommendation:
             self.strategy_banner.configure(
-                text=f"⚠️ STRATEGY: {rep.box_recommendation}" if en else f"⚠️ ESTRATEGIA: {rep.box_recommendation}",
+                text=f"⚠️ PLAN {active_plan}: {rep.box_recommendation}",
                 bg="#3D2E14",
                 fg=self.AMBER,
             )
         else:
             self.strategy_banner.configure(
-                text=f"✅ STRATEGY: {rep.box_recommendation}" if en else f"✅ ESTRATEGIA: {rep.box_recommendation} (Seguir en pista)",
+                text=f"✅ PLAN {active_plan}: {rep.box_recommendation}" if en else f"✅ PLAN {active_plan}: {rep.box_recommendation} (Seguir en pista)",
                 bg="#16322B",
                 fg=self.GREEN,
             )
@@ -1590,8 +1591,8 @@ class PitWallWindow:
                 f"CAR AHEAD  : {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) [{rep.ahead_tyre}]",
                 f"CAR BEHIND : {rep.behind_name} (-{rep.behind_gap_s:.1f}s) [{rep.behind_tyre}]",
                 "─" * 42,
-                f"PIT WINDOW     : Lap {rep.pit_window_ideal} to {rep.pit_window_latest}",
-                f"PREDICTED EXIT : P{rep.predicted_rejoin_pos} -> Fit {rep.recommended_compound}",
+                f"PIT WALL PLAN  : PLAN {active_plan} (Ask: Plan A / Plan B / Plan C)",
+                f"PIT WINDOW     : Lap {rep.pit_window_ideal} to {rep.pit_window_latest} -> P{rep.predicted_rejoin_pos} ({rep.recommended_compound})",
                 "─" * 42,
                 f"TYRE COMPOUND  : {rep.current_tyre} ({rep.tyre_age} laps)",
                 f"TYRE WEAR      : FL {wear_wheels[2]:.0f}% | FR {wear_wheels[3]:.0f}% | RL {wear_wheels[0]:.0f}% | RR {wear_wheels[1]:.0f}%",
@@ -1611,8 +1612,8 @@ class PitWallWindow:
                 f"DELANTE  : {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) [{rep.ahead_tyre}]",
                 f"DETRÁS   : {rep.behind_name} (-{rep.behind_gap_s:.1f}s) [{rep.behind_tyre}]",
                 "─" * 42,
-                f"VENTANA BOXES  : Vuelta {rep.pit_window_ideal} a {rep.pit_window_latest}",
-                f"SALIDA PREVISTA: P{rep.predicted_rejoin_pos} -> Montar {rep.recommended_compound}",
+                f"PLAN EN MURO   : PLAN {active_plan} (Pregunta: Plan A / Plan B / Plan C)",
+                f"VENTANA BOXES  : V{rep.pit_window_ideal}-V{rep.pit_window_latest} -> Salida P{rep.predicted_rejoin_pos} ({rep.recommended_compound})",
                 "─" * 42,
                 f"NEUMÁTICO      : {rep.current_tyre} ({rep.tyre_age} vueltas)",
                 f"DESGASTE RUEDAS: FL {wear_wheels[2]:.0f}% | FR {wear_wheels[3]:.0f}% | RL {wear_wheels[0]:.0f}% | RR {wear_wheels[1]:.0f}%",

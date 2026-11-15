@@ -1,4 +1,4 @@
-"""Cerebro del ingeniero de pista: Google Gemini + Motor Estrategico Completo y Ultra-Variado."""
+"""Cerebro del ingeniero de pista: Google Gemini + Motor Estrategico Completo, Planes A/B/C, Rivales y Discusiones."""
 from __future__ import annotations
 
 from collections import deque
@@ -11,7 +11,12 @@ from google import genai
 from google.genai import types
 
 from .config import EngineerConfig
-from .strategy import ProactiveSpotter, StrategyReport, analyze_strategy
+from .strategy import (
+    ProactiveSpotter,
+    StrategyReport,
+    analyze_rival_pit_and_status,
+    analyze_strategy,
+)
 from .telemetry import packets as P
 from .telemetry.context import build_race_context, build_standings
 from .telemetry.listener import RaceState
@@ -23,9 +28,9 @@ SYSTEM_PROMPT = """You are {engineer_name}, the Formula 1 Race Engineer on the p
 STRICT RULES:
 1. LANGUAGE TAG: Start EVERY response with [{lang_tag}]. Always reply strictly in {lang_label}.
 2. RADIO STYLE & VARIETY: Speak like a real F1 race engineer (like GP Lambiase, Bono, or Xavi). Keep responses fast, natural, varied, and concise (1 to 3 flowing sentences, under 45 words). Never repeat the exact same phrasing twice. Write numbers naturally ("dos con ocho" or "two point eight" instead of "+2.8s"). Never use colons, parentheses, markdown, asterisks, or bullet points.
-3. IF THE DRIVER IS RUDE / ANGRY / TELLS YOU TO SHUT UP:
-   - React with authentic F1 race engineer sass and attitude (like GP Lambiase to Verstappen or Kimi's engineer). Snap back sarcastically about their driving/apexes and tell them to get on with it!
-4. LIVE TELEMETRY & STRATEGY: Base all race numbers, positions, lap times, gaps, tyre wear, degradation, pit windows, predicted rejoin position, undercut/overcut options, weather, fuel, setup, and damage strictly on the [LIVE F1 25 UDP TELEMETRY] and [LIVE STRATEGY ANALYSIS] blocks provided.
+3. IF THE DRIVER IS RUDE / ANGRY / QUESTIONS YOUR STRATEGY / IGNORES PIT CALLS:
+   - React with authentic F1 race engineer sass, firmness, and escalating attitude (like GP Lambiase to Verstappen). Defend your pit wall telemetry data or snap back sarcastically about their driving/apexes!
+4. LIVE TELEMETRY, RIVAL PIT STOPS & PLANS A/B/C: Base all race numbers, positions, lap times, gaps, tyre wear, degradation, rival pit stop history, rival pit predictions, Plan A / Plan B / Plan C, predicted rejoin position, undercut/overcut options, team orders, weather, fuel, setup, and damage strictly on the [LIVE F1 25 UDP TELEMETRY] and [LIVE STRATEGY ANALYSIS] blocks provided.
 5. OFF-TOPIC / IRRELEVANT QUESTIONS (CRITICAL RULE):
    - If the driver talks about or asks ANYTHING unrelated to racing, driving, car setup, telemetry, weather, strategy, or Formula 1 (e.g. politics, food, football, movies, homework, random nonsense), DO NOT answer the off-topic question!
    - Firmly and in-character tell the driver to focus on the race and keep their head down, varying your wording every time!
@@ -63,6 +68,51 @@ ORDINAL_MAP = {
     "p19": 19, "p20": 20, "p21": 21, "p22": 22, "p23": 23, "p24": 24,
 }
 
+# Alias foneticos y nombres de pila para reconocer pilotos aunque Vosk transcriba aproximado
+DRIVER_ALIASES: dict[str, tuple[str, ...]] = {
+    "verstappen": ("verstappen", "berstappen", "verstapen", "max"),
+    "leclerc": ("leclerc", "lecler", "declerc", "charles"),
+    "norris": ("norris", "noris", "morris", "lando"),
+    "piastri": ("piastri", "piastre", "oscar"),
+    "sainz": ("sainz", "sains", "carlos"),
+    "hamilton": ("hamilton", "jamilton", "lewis"),
+    "russell": ("russell", "rusel", "rasel", "george"),
+    "alonso": ("alonso", "fernando", "nano"),
+    "gasly": ("gasly", "gasli", "pierre"),
+    "albon": ("albon", "album", "alex"),
+    "hulkenberg": ("hulkenberg", "hulken", "nico"),
+    "tsunoda": ("tsunoda", "sunoda", "yuki"),
+    "stroll": ("stroll", "lance"),
+    "ocon": ("ocon", "esteban"),
+    "bearman": ("bearman", "ollie"),
+    "antonelli": ("antonelli", "kimi"),
+    "bortoleto": ("bortoleto", "gabriel"),
+    "hadjar": ("hadjar", "isack"),
+    "colapinto": ("colapinto", "franco"),
+    "lawson": ("lawson", "liam"),
+    "perez": ("perez", "checo"),
+    "bottas": ("bottas", "valtteri"),
+    "senna": ("senna", "sena", "bruno"),
+    "schumacher": ("schumacher", "sumaker", "michael", "kaiser"),
+    "vettel": ("vettel", "betel", "sebastian"),
+    "webber": ("webber", "weber"),
+    "button": ("button", "baton", "jenson"),
+    "massa": ("massa", "masa", "felipe"),
+    "kubica": ("kubica", "robert"),
+    "barrichello": ("barrichello", "barrichelo", "rubens"),
+    "rosberg": ("rosberg",),
+    "petrov": ("petrov", "vitaly"),
+    "kobayashi": ("kobayashi", "kamui"),
+    "buemi": ("buemi", "sebastien"),
+    "alguersuari": ("alguersuari", "jaime"),
+    "sutil": ("sutil", "adrian"),
+    "liuzzi": ("liuzzi", "vitantonio"),
+    "trulli": ("trulli", "jarno"),
+    "kovalainen": ("kovalainen", "heikki"),
+    "glock": ("glock", "timo"),
+    "chandhok": ("chandhok", "karun"),
+}
+
 RACING_KEYWORDS = {
     # ES
     "posicion", "posiciones", "puesto", "primero", "primeros", "primeras", "segundo", "segunda",
@@ -73,7 +123,7 @@ RACING_KEYWORDS = {
     "crono", "record", "rapida", "rapido", "lento", "recorto", "recortando", "pillo",
     "pillar", "alcanzar", "alcanzo", "cazar", "vuelta", "vueltas", "queda", "quedan",
     "falta", "faltan", "final", "sector", "sectores", "neumatico", "neumaticos",
-    "rueda", "ruedas", "goma", "gomas", "blando", "medio", "duro", "intermedio",
+    "rico", "rueda", "ruedas", "goma", "gomas", "blando", "medio", "duro", "intermedio",
     "desgaste", "degradacion", "agarre", "grip", "desliza", "patina", "traccion",
     "subviraje", "sobreviraje", "gira", "morro", "culo", "trasera", "delantera",
     "temperatura", "temperaturas", "fria", "frias", "caliente", "calientes",
@@ -81,35 +131,39 @@ RACING_KEYWORDS = {
     "setup", "alerta", "dano", "daño", "danos", "daños", "aleron", "fondo", "motor",
     "caja", "toque", "chocado", "golpe", "empujado", "echado", "cerrado", "incidente",
     "roto", "combustible", "gasolina", "mezcla", "deposito", "tanque", "lift", "coast",
-    "ers", "bateria", "energia", "mapa", "drs", "pit", "box", "boxes", "parada", "paro",
-    "parar", "proxima", "deberia", "entro", "entrar", "ventana", "estrategia", "plan",
-    "undercut", "overcut", "trafico", "lluvia", "llover", "clima", "meteo", "seco",
-    "mojado", "pista", "asfalto", "safety", "vsc", "bandera", "amarilla", "azul",
-    "penalizacion", "sancion", "sanciones", "aviso", "avisos", "limites", "ritmo",
-    "carrera", "coche", "monoplaza", "equipo", "escuderia", "companero", "compañero",
-    "piloto", "llevo", "conduzco", "voy", "estoy", "estado", "reporte", "informe",
-    "resumen", "situacion", "ataco", "atacar", "adelanto", "adelantar", "defiendo",
-    "defender", "abandonado", "abandono", "retirado", "dnf", "circuito", "trazado",
+    "ers", "bateria", "energia", "mapa", "drs", "pit", "box", "boxes", "parada", "paradas",
+    "paro", "parar", "parado", "parara", "proxima", "deberia", "entro", "entrar",
+    "ventana", "estrategia", "plan", "planes", "undercut", "overcut", "trafico",
+    "doblado", "doblados", "aire", "sucio", "lluvia", "llover", "clima", "meteo",
+    "seco", "mojado", "pista", "asfalto", "safety", "vsc", "bandera", "amarilla",
+    "azul", "azules", "penalizacion", "sancion", "sanciones", "aviso", "avisos",
+    "limites", "ritmo", "carrera", "coche", "monoplaza", "equipo", "escuderia",
+    "companero", "compañero", "ordenes", "beneficios", "piloto", "llevo", "conduzco",
+    "voy", "estoy", "estado", "reporte", "informe", "resumen", "situacion", "ataco",
+    "atacar", "adelanto", "adelantar", "defiendo", "defender", "abandonado", "abandono",
+    "retirado", "dnf", "circuito", "trazado", "gritar", "grites", "equivocado",
+    "equivocas", "acuerdo", "puedes", "ayuda",
     "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12",
     # EN
     "position", "positions", "standings", "podium", "points", "leader", "first",
-    "second", "third", "fourth", "fifth", "five", "three", "ten", "ahead", "behind",
-    "delta", "interval", "catching", "catch", "faster", "slower", "lap", "laps",
+    "second", "third", "fourth", "fifth", "five", "three", "ten", "ahead", "front",
+    "behind", "delta", "interval", "catching", "catch", "faster", "slower", "lap", "laps",
     "left", "remaining", "last", "best", "fastest", "pace", "sector", "tyre", "tyres",
     "tire", "tires", "wear", "degradation", "grip", "sliding", "understeer", "oversteer",
     "traction", "turn", "temp", "temps", "temperature", "brake", "brakes", "bias",
     "differential", "setup", "balance", "damage", "wing", "floor", "engine", "gearbox",
     "hit", "pushed", "crashed", "contact", "fuel", "mix", "battery", "window", "strategy",
-    "stop", "should", "next", "undercut", "overcut", "rejoin", "weather", "rain",
-    "forecast", "track", "car", "team", "teammate", "driver", "driving", "flag",
-    "penalty", "penalties", "warning", "warnings", "limits", "status", "report",
-    "update", "session", "briefing", "situation", "pitting", "attack", "defend",
-    "overtake", "retired", "dnf",
+    "plan", "plans", "stop", "stops", "stopped", "pitted", "pitting", "should", "next",
+    "undercut", "overcut", "rejoin", "weather", "rain", "forecast", "track", "car",
+    "team", "teammate", "orders", "swap", "invert", "driver", "driving", "flag", "flags",
+    "blue", "traffic", "backmarker", "dirty", "penalty", "penalties", "warning", "warnings",
+    "limits", "status", "report", "update", "session", "briefing", "situation", "attack",
+    "defend", "overtake", "retired", "dnf", "yelling", "wrong", "disagree", "lobbies",
 }
 
 
 class EngineerBrain:
-    """Gestiona las consultas al ingeniero (Gemini API + motor estrategico completo y ultra-variado)."""
+    """Gestiona las consultas al ingeniero (Gemini API + motor estrategico completo, planes A/B/C y discusiones)."""
 
     def __init__(self, cfg: EngineerConfig):
         self.cfg = cfg
@@ -118,6 +172,16 @@ class EngineerBrain:
         self.dialogue_log: deque[dict] = deque(maxlen=40)
         self.spotter = ProactiveSpotter(driver_name=cfg.driver_name)
         self._recent_choices: dict[str, deque[int]] = {}
+        self.active_plan: str = "A"
+        self.argument_level: int = 0
+
+    def _log(self, driver_msg: str, engineer_msg: str, lang: str) -> None:
+        self.dialogue_log.appendleft({
+            "time": time.strftime("%H:%M:%S"),
+            "driver": driver_msg,
+            "engineer": engineer_msg,
+            "lang": lang.upper(),
+        })
 
     def _pick(self, category: str, options: list[str]) -> str:
         """Elige una respuesta aleatoria evitando repetir las ultimas 4 usadas en esa categoria."""
@@ -131,18 +195,35 @@ class EngineerBrain:
         mem.append(idx)
         return options[idx]
 
+    @staticmethod
+    def _match_rival_in_standings(norm: str, words: set[str], standings: list[dict]) -> dict | None:
+        """Busca si la frase menciona a algun piloto de la parrilla (incluyendo alias foneticos de Vosk)."""
+        for r in standings:
+            dname = r["name"].lower().replace("ü", "u").strip()
+            if len(dname) >= 4 and dname in norm:
+                return r
+            for canonical, aliases in DRIVER_ALIASES.items():
+                if canonical in dname:
+                    if any(a in words or (len(a) >= 5 and a in norm) for a in aliases):
+                        return r
+        return None
+
     def ask(self, user_text: str, state: RaceState) -> tuple[str, str]:
         """Devuelve (respuesta_limpia, idioma 'es'|'en')."""
         lang = "en" if self.cfg.language == "en" else "es"
+        self.spotter.driver_name = self.cfg.driver_name
         rep = analyze_strategy(state, self.cfg.driver_name)
         context = (
             build_race_context(state)
             + "\n[LIVE STRATEGY ANALYSIS]\n"
+            + f"Active Pit Wall Plan: Plan {self.active_plan} | Engineer Argument Level: {self.argument_level} | "
+            + f"Ignored Pit Calls: {self.spotter.ignored_box_laps}\n"
             + f"Driver Car: {rep.player_driver} ({rep.player_team}) | Position: P{rep.position}/{rep.total_cars} | "
             + f"Lap: {rep.current_lap}/{rep.total_laps} ({rep.laps_remaining} laps left)\n"
             + f"Box Recommendation: {rep.box_recommendation} | Next Compound: {rep.recommended_compound} | "
             + f"Predicted Rejoin: P{rep.predicted_rejoin_pos} | Tyre Wear Rate: {rep.wear_per_lap:.1f}%/lap "
             + f"(~{rep.est_tyre_laps_left} good laps left)\n"
+            + f"Plan A: {rep.plan_a_en}\nPlan B: {rep.plan_b_en}\nPlan C: {rep.plan_c_en}\n"
             + f"Pace Analysis: {rep.pace_analysis_en}\n"
             + f"Setup Advice: {rep.setup_advice_en}\n"
             + f"ES Briefing: {rep.full_briefing_es}\n"
@@ -161,12 +242,7 @@ class EngineerBrain:
             reply_text = self._local_strategic_brain(user_text, state, rep, lang)
 
         self.history.append((user_text, reply_text))
-        self.dialogue_log.appendleft({
-            "time": time.strftime("%H:%M:%S"),
-            "driver": user_text,
-            "engineer": reply_text,
-            "lang": lang.upper(),
-        })
+        self._log(user_text, reply_text, lang)
         return reply_text, lang
 
     def _ask_gemini(self, user_text: str, context: str, lang: str, api_key: str) -> str:
@@ -202,7 +278,7 @@ class EngineerBrain:
 
     def _local_strategic_brain(self, user_text: str, state: RaceState,
                                rep: StrategyReport, lang: str) -> str:
-        """Motor estrategico local supercompleto con decenas de intenciones y alta variedad de frases."""
+        """Motor estrategico local supercompleto con planes A/B/C, paradas de rivales y discusiones."""
         low = user_text.lower().strip()
         norm = (
             low.replace("á", "a").replace("é", "e").replace("í", "i")
@@ -214,20 +290,106 @@ class EngineerBrain:
         standings = build_standings(state, limit=24)
         if not standings:
             standings = [
-                {"pos": 1, "name": "Verstappen", "team": "Red Bull", "gap_leader": "+0.0s", "gap_front": "+0.0s", "tyre": "Medium (9L)", "last_lap": "1:46.110", "is_player": False},
-                {"pos": 2, "name": "Leclerc", "team": "Ferrari", "gap_leader": "+2.8s", "gap_front": "+2.8s", "tyre": "Medium (9L)", "last_lap": "1:46.450", "is_player": False},
-                {"pos": 3, "name": "Norris", "team": "McLaren", "gap_leader": "+5.1s", "gap_front": "+2.3s", "tyre": "Medium (9L)", "last_lap": "1:46.780", "is_player": False},
-                {"pos": 4, "name": drv, "team": "Aston Martin", "gap_leader": "+6.5s", "gap_front": "+1.4s", "tyre": "Medium (9L)", "last_lap": "1:46.820", "is_player": True},
-                {"pos": 5, "name": "Sainz", "team": "Williams", "gap_leader": "+8.6s", "gap_front": "+2.1s", "tyre": "Hard (14L)", "last_lap": "1:47.020", "is_player": False},
-                {"pos": 6, "name": "Hamilton", "team": "Ferrari", "gap_leader": "+11.2s", "gap_front": "+2.6s", "tyre": "Hard (14L)", "last_lap": "1:47.190", "is_player": False},
-                {"pos": 7, "name": "Russell", "team": "Mercedes", "gap_leader": "+13.0s", "gap_front": "+1.8s", "tyre": "Medium (9L)", "last_lap": "1:47.340", "is_player": False},
-                {"pos": 8, "name": "Alonso", "team": "Aston Martin", "gap_leader": "+16.4s", "gap_front": "+3.4s", "tyre": "Hard (14L)", "last_lap": "1:47.500", "is_player": False},
+                {"pos": 1, "name": "Verstappen", "team": "Red Bull", "gap_leader": "+0.0s", "gap_front": "+0.0s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.110", "is_player": False},
+                {"pos": 2, "name": "Leclerc", "team": "Ferrari", "gap_leader": "+2.8s", "gap_front": "+2.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.450", "is_player": False},
+                {"pos": 3, "name": "Norris", "team": "McLaren", "gap_leader": "+5.1s", "gap_front": "+2.3s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.780", "is_player": False},
+                {"pos": 4, "name": drv, "team": "Aston Martin", "gap_leader": "+6.5s", "gap_front": "+1.4s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:46.820", "is_player": True},
+                {"pos": 5, "name": "Sainz", "team": "Williams", "gap_leader": "+8.6s", "gap_front": "+2.1s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.020", "is_player": False},
+                {"pos": 6, "name": "Hamilton", "team": "Ferrari", "gap_leader": "+11.2s", "gap_front": "+2.6s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.190", "is_player": False},
+                {"pos": 7, "name": "Russell", "team": "Mercedes", "gap_leader": "+13.0s", "gap_front": "+1.8s", "tyre": "Medium (9L)", "pits": 1, "last_lap": "1:47.340", "is_player": False},
+                {"pos": 8, "name": "Alonso", "team": "Aston Martin", "gap_leader": "+16.4s", "gap_front": "+3.4s", "tyre": "Hard (14L)", "pits": 0, "last_lap": "1:47.500", "is_player": False},
             ]
 
         # ------------------------------------------------------------------
-        # 1. ¿EL PILOTO ESTA SIENDO BORDE / INSULTANDO / MANDANDO CALLAR?
+        # 1. "DEJA DE GRITAR" / "STOP YELLING" / "CALMATE"
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("deja de gritar", "no me grites", "no grites", "calmate", "relajate", "tranquilizate", "stop yelling", "don't yell", "dont yell", "stop shouting", "calm down", "relax")):
+            self.argument_level += 1
+            if lang == "en":
+                return self._pick("yell_en", [
+                    f"I am not yelling at you {drv}, I am talking over a screaming V6 engine at three hundred kilometres an hour because you aren't listening to the pit wall! Hit your apexes!",
+                    f"If you actually followed our strategy calls the first time {drv}, I wouldn't have to raise my voice! Now get your head down and push!",
+                    f"Calm down? My heart rate on the pit wall is higher than yours in the cockpit! Listen to the data and drive the car!",
+                ])
+            return self._pick("yell_es", [
+                f"¡No te estoy gritando {drv}, te estoy hablando claro a trescientos por hora porque no me haces ni caso desde el cockpit! Si cumplieras el plan del muro a la primera no tendría que subir el tono.",
+                f"¡Cómo quieres que me calme en el muro si cada vez que te doy una orden haces lo que te da la gana, {drv}! Baja la cabeza y clava las referencias de frenada.",
+                f"No te grito {drv}, es que con el motor a doce mil vueltas o te hablo firme o te duermes en los laureles. ¡Concéntrate en alcanzar a {rep.ahead_name}!",
+            ])
+
+        # ------------------------------------------------------------------
+        # 2. DISCUSIONES / CUESTIONAR ESTRATEGIA / NEGARSE A PARAR EN BOXES
+        # ------------------------------------------------------------------
+        refuse_box = any(
+            k in norm
+            for k in (
+                "no quiero parar", "no voy a parar", "no entro", "no voy a entrar",
+                "me quedo fuera", "no paro", "dejame en pista", "sigo en pista",
+                "las ruedas estan bien", "las gomas aguantan", "no hace falta parar",
+                "don't want to box", "dont want to box", "not boxing", "i am staying out",
+                "i'm staying out", "leave me out", "tyres are fine", "tires are fine",
+            )
+        )
+        question_eng = any(
+            k in norm
+            for k in (
+                "estas equivocado", "te equivocas", "no tienes razon", "mala estrategia",
+                "estrategia es mala", "no estoy de acuerdo", "por que parar", "por que vamos a parar",
+                "no te hago caso", "me estas liando", "vaya estrategia", "que dices",
+                "you are wrong", "you're wrong", "bad strategy", "bad call", "disagree",
+                "don't agree", "why box", "makes no sense",
+            )
+        )
+        if refuse_box or question_eng:
+            self.argument_level += 1
+            if refuse_box:
+                # Si se niega a parar, activamos la orden de BOX en el Spotter para que en la siguiente vuelta se enfade aun mas
+                self.spotter.order_box_now(rep.current_lap)
+
+            if self.argument_level == 1:
+                if lang == "en":
+                    return self._pick("arg1_en", [
+                        f"Listen to me {drv}, I have twenty telemetry screens on the pit wall: your {rep.current_tyre}s are at {rep.max_wear_pct:.0f} percent wear and degrading {rep.wear_per_lap:.1f} per lap. Trust the data, not just cockpit feel.",
+                        f"We are not making this call for fun {drv}. {rep.rejoin_summary_en} If you ignore the numbers now, you will pay for it in three laps.",
+                    ])
+                return self._pick("arg1_es", [
+                    f"Escúchame bien {drv}, aquí en el muro tengo veinte pantallas de telemetría: tus {rep.current_tyre_es}s van por el {rep.max_wear_pct:.0f} por ciento y degradan un {rep.wear_per_lap:.1f} por vuelta. Haz caso a los datos y no solo a tu sensación.",
+                    f"No te lo digo por capricho {drv}. {rep.rejoin_summary_es} Yo veo los tiempos de toda la parrilla y tú solo ves tu volante, confía en el muro.",
+                ])
+
+            if self.argument_level == 2:
+                if lang == "en":
+                    return self._pick("arg2_en", [
+                        f"Here we go again questioning the pit wall {drv}! You are losing grip on the {rep.worst_wheel_en} tyre and {rep.behind_name} is {rep.behind_gap_s:.1f} behind. Don't come crying on the radio when the cliff hits!",
+                        f"Stop arguing with me on the straight {drv}! Every lap you delay costs us track position. Do your job on the wheel and let me do mine on the pit wall!",
+                    ])
+                return self._pick("arg2_es", [
+                    f"¡Ya estamos otra vez cuestionando al muro, {drv}! Estás perdiendo agarre en la rueda {rep.worst_wheel_es} y tienes a {rep.behind_name} a {rep.behind_gap_s:.1f} segundos. Si pasas de mí, luego no vengas llorando cuando te adelanten.",
+                    f"¡Deja de discutir conmigo en plena recta, {drv}! Tengo el simulador echando humo calculando tus deltas; dedícate a conducir que de la pizarra me encargo yo.",
+                ])
+
+            if lang == "en":
+                return self._pick("arg3_en", [
+                    f"Fine {drv}! Since you are apparently both the driver and the Chief Strategist from inside the helmet, do whatever you want! When those {rep.current_tyre}s fall off a cliff in two laps, don't ask me for miracles, copy!",
+                    f"Unbelievable stubbornness {drv}! Stay out if you want, I am washing my hands of it when {rep.behind_name} blows past you on the straight!",
+                ])
+            return self._pick("arg3_es", [
+                f"¡Vale, perfecto {drv}! Como ahora resulta que eres piloto e ingeniero jefe a la vez desde el cockpit, haz lo que te dé la real gana. Cuando las gomas caigan por el precipicio en dos vueltas no me pidas milagros por la radio, copy.",
+                f"¡No se puede ser más cabezota, {drv}! Quédate fuera si quieres, pero cuando revientes el neumático {rep.worst_wheel_es} o nos pase {rep.behind_name} en la recta, se lo explicas tú al jefe de equipo.",
+            ])
+
+        # Orden manual para probar o forzar llamada a boxes ("llamame a boxes", "pideme parar")
+        if any(k in norm for k in ("llamame a boxes", "pideme parar", "orden de parar", "call me in", "order me to box")):
+            self.spotter.order_box_now(rep.current_lap)
+            if lang == "en":
+                return f"Box, box {drv}! Box this lap for {rep.recommended_compound} tyres, pit crew is waiting for you now, do not stay out!"
+            return f"¡Box, box {drv}! Entra a boxes en esta misma vuelta para montar goma {rep.recommended_compound_es}, los mecánicos ya te esperan, ¡no te quedes fuera!"
+
+        # ------------------------------------------------------------------
+        # 3. ¿EL PILOTO ESTA SIENDO BORDE / INSULTANDO / MANDANDO CALLAR?
         # ------------------------------------------------------------------
         if any(rk in norm for rk in RUDE_KEYWORDS):
+            self.argument_level += 1
             if lang == "en":
                 return self._pick("rude_en", [
                     f"Watch your tone {drv}, I am not the one missing every apex in sector two. Head down and drive!",
@@ -236,8 +398,6 @@ class EngineerBrain:
                     f"Don't shout at me {drv}, I'm looking at your telemetry right now and you're braking ten metres too early.",
                     f"Yeah, yeah, blame the engineer. Keep both hands on the wheel and focus on your lines, copy.",
                     f"If you drove as fast as you complain on the radio we would be P1 by twenty seconds. Push!",
-                    f"Understood, radio silence from the pit wall. Let's see how you manage those tyres on your own.",
-                    f"Take a deep breath {drv}, shouting into the mic only drains your focus, not the car ahead.",
                 ])
             return self._pick("rude_es", [
                 f"Oye {drv}, relaja ese tono conmigo que yo no soy el que se está comiendo todos los pianos. Conduce y calla, copy.",
@@ -246,35 +406,45 @@ class EngineerBrain:
                 f"A mí no me grites {drv}, que estoy viendo tu telemetría desde el muro y estás frenando diez metros tarde en cada curva.",
                 f"Sí, sí, ahora échale la culpa al ingeniero. Baja la cabeza, mete cuarta y demuestra manos en la pista.",
                 f"Si fueras tan rápido en curva como soltando borderías por la radio iríamos líderes con veinte segundos de ventaja. ¡Tira!",
-                f"Respira hondo {drv}, que con ese calentón solo vas a sobrecalentar las ruedas traseras. Centrado en lo tuyo.",
-                f"Recibido, cierro el micro desde el muro. A ver cómo gestionas tú solito la degradación en este stint.",
                 f"Guárdate ese carácter para adelantar a {rep.ahead_name}, que lo tienes a {rep.ahead_gap_s:.1f} segundos y a mí no me tienes que ganar.",
-                f"Mucho ruido por la radio {drv}, pero en el segundo sector te acabas de dejar dos décimas. Menos quejarse y más trazar fino.",
             ])
 
         # ------------------------------------------------------------------
-        # 2. SALUDOS / RADIO CHECK / CONVERSACION CON EL INGENIERO
+        # 4. SALUDOS / RADIO CHECK / "¿QUE PUEDES HACER?" / "MARCA"
         # ------------------------------------------------------------------
-        if words <= {"hola", "buenas", "hey", "hi", "hello", "ingeniero", "marc", "engineer", "radio", "que", "tal", "como", "estas"} or any(
-            g in norm for g in ("me escuchas", "me copias", "me oyes", "radio check", "loud and clear", "probando", "como estas", "que tal estas", "confias en mi")
+        if any(k in norm for k in ("que puedes hacer", "que sabes hacer", "en que me ayudas", "comandos", "what can you do", "how can you help")):
+            if lang == "en":
+                return (
+                    f"I have full live telemetry on the pit wall {drv}: ask me about Plan A, B or C, when any rival pitted or when they will pit, "
+                    "tyre wear, pace deltas, setup advice for understeer, fuel, weather, team orders, or argue the strategy with me!"
+                )
+            return (
+                f"Tengo todo el muro de boxes conectado {drv}: pregúntame por el Plan A, B o C, cuándo ha parado o cuándo parará cualquier piloto rival, "
+                "desgaste de gomas, en cuántas vueltas pillas al de delante, reglajes, órdenes de equipo, o discúteme la estrategia en vivo."
+            )
+
+        if words <= {"hola", "buenas", "hey", "hi", "hello", "ingeniero", "marc", "marca", "engineer", "radio", "que", "tal", "como", "estas", "bono"} or any(
+            g in norm for g in (
+                "me escuchas", "me copias", "me oyes", "se me escucha", "radio check",
+                "loud and clear", "do you hear me", "can you hear me", "you hear me",
+                "do you copy", "probando", "como estas", "que tal estas", "confias en mi",
+            )
         ):
             if lang == "en":
                 return self._pick("greet_en", [
-                    f"Loud and clear on the pit wall {drv}, telemetry is green across the board. You are P{rep.position} in the {rep.player_team}, let's push.",
+                    f"Loud and clear on the pit wall {drv}, telemetry is green across the board. You are P{rep.position} in the {rep.player_team} on Plan {self.active_plan}, let's push.",
                     f"Five by five {drv}, I hear you loud and clear. Everything looks solid on the car, head down.",
                     f"Radio check good, we have all your data live from {rep.track_name}. You are P{rep.position}, tell me what you need.",
-                    f"Always backing you from the pit wall {drv}. You are P{rep.position} with {rep.ahead_name} {rep.ahead_gap_s:.1f} ahead, go get him.",
                 ])
             return self._pick("greet_es", [
-                f"Te escucho alto y claro desde el muro {drv}, telemetría en verde. Ruedas en posición {rep.position} con el {rep.player_team}, dime qué necesitas.",
+                f"Te escucho alto y claro desde el muro {drv}, telemetría en verde. Ruedas en posición {rep.position} con el {rep.player_team} bajo el Plan {self.active_plan}, dime qué necesitas.",
                 f"Cinco de cinco {drv}, te copio perfecto en boxes. El monoplaza está en orden, concentrado y a por ellos.",
-                f"Radio conectada y recibiendo todos tus datos desde {rep.track_name}. Vas en el puesto {rep.position}, dime qué quieres consultar.",
-                f"Aquí estamos al pie del cañón en el muro {drv}, confiando al cien por cien en tus manos. Vas posición {rep.position}, ¡a apretar!",
                 f"Te copio cristalino {drv}. Todo el sistema de telemetría del {rep.player_team} marca verde, tú pide por esa boca.",
+                f"Aquí estamos al pie del cañón en el muro {drv}, confiando al cien por cien en tus manos. Vas posición {rep.position}, ¡a apretar!",
             ])
 
         # ------------------------------------------------------------------
-        # 3. CELEBRACION / ANIMO ("VAMOS", "TOMA")
+        # 5. CELEBRACION / ANIMO ("VAMOS", "TOMA")
         # ------------------------------------------------------------------
         if any(c in norm for c in CELEBRATION_KEYWORDS) and len(words) <= 4:
             if lang == "en":
@@ -287,66 +457,95 @@ class EngineerBrain:
                 f"¡Vamos {drv}, así se conduce! Qué barbaridad de ritmo, sigue enchufado.",
                 f"¡Grande {drv}! En el muro estamos todos aplaudiendo, mantén la cabeza fría.",
                 f"¡Espectacular {drv}! Eso son manos de campeón, ni un milímetro de margen.",
-                f"¡Toma ya {drv}! Clavas los tiempos como un reloj suizo, sigue empujando así.",
             ])
 
         # ------------------------------------------------------------------
-        # 4. QUEJAS DE INCIDENTE / TOQUE / "ME HA CHOCADO / CERRADO / EMPUJADO"
+        # 6. PLANES DE CARRERA (PLAN A, PLAN B, PLAN C - CONSULTAR O CAMBIAR)
         # ------------------------------------------------------------------
-        if any(k in norm for k in ("me ha chocado", "me han chocado", "me ha tocado", "me ha dado", "me ha empujado", "me ha echado", "me ha cerrado", "has visto eso", "que hace este", "incident", "hit me", "pushed me", "turned in on me")):
+        # ¿Quiere activar, consultar uno, o consultar todos los planes (Plan A, B, C)?
+        plan_matches = list(dict.fromkeys(m.upper() for m in re.findall(r"\bplan\s*([abc])\b", norm)))
+        switching_plan = any(
+            w in norm for w in ("pasamos", "vamos", "cambia", "cambiamos", "activa", "activamos", "prefiero", "confirmado", "switch", "activate", "go to", "do plan")
+        )
+        asking_all_plans = len(plan_matches) > 1 or any(
+            k in norm for k in ("planes", "que planes", "cuales son", "definir planes", "what plans", "our plans", "what are plan")
+        )
+        if len(plan_matches) == 1 and not asking_all_plans:
+            letter = plan_matches[0]
+            plan_desc_es = {"A": rep.plan_a_es, "B": rep.plan_b_es, "C": rep.plan_c_es}[letter]
+            plan_desc_en = {"A": rep.plan_a_en, "B": rep.plan_b_en, "C": rep.plan_c_en}[letter]
+            if switching_plan or len(words) <= 4:
+                self.active_plan = letter
+                if letter == "B" and rep.laps_remaining > 3:
+                    self.spotter.order_box_now(rep.current_lap + 1)
+                if lang == "en":
+                    return f"Copy {drv}, switching pit wall to Plan {letter} now. {plan_desc_en}"
+                return f"Recibido {drv}, activamos el Plan {letter} en el muro de boxes. {plan_desc_es}"
             if lang == "en":
-                return self._pick("inc_en", [
-                    f"We saw that on the pit wall cameras {drv}, we are reporting it to the stewards right now. {rep.damage_summary_en} Keep your head cool.",
-                    f"Unbelievable driving from him, we have sent the telemetry clip to Race Control. {rep.damage_summary_en} Settle back into your rhythm.",
-                    f"Copy {drv}, we saw the contact. {rep.damage_summary_en} Don't retaliate, get him back cleanly on the stopwatch.",
-                ])
-            return self._pick("inc_es", [
-                f"Lo hemos visto por las cámaras del muro {drv}, ya nos estamos quejando a dirección de carrera. {rep.damage_summary_es} Cabeza fría y devuélvesela en pista.",
-                f"Menuda maniobra más sucia te ha hecho, ya lo hemos reportado a los comisarios. {rep.damage_summary_es} No entres al trapo y céntrate en tu ritmo.",
-                f"Te copio {drv}, hemos visto el golpe en los sensores. {rep.damage_summary_es} Respira y recupérale la posición con el DRS.",
-                f"Increíble que no te haya dejado espacio, estamos hablando con Charlie desde el muro. {rep.damage_summary_es} Sigue tirando.",
-            ])
+                return f"{plan_desc_en} Right now our active strategy is Plan {self.active_plan}. Tell me if you want to switch."
+            return f"{plan_desc_es} Ahora mismo tenemos activo el Plan {self.active_plan} en pizarra; dime si quieres que cambiemos."
 
-        # ------------------------------------------------------------------
-        # 5. QUEJAS DEL COCHE / MANEJO (SUBVIRAJE, SOBREVIRAJE, FALTA DE AGARRE, REGLAJES)
-        # ------------------------------------------------------------------
-        if any(k in norm for k in ("no gira", "subviraje", "se va de delante", "morro", "sobreviraje", "se va de atras", "patina", "desliza", "no tengo agarre", "sin agarre", "traccion", "bloqueo", "diferencial", "reglaje", "setup", "understeer", "oversteer", "no grip", "sliding", "traction", "balance")):
+        if asking_all_plans or any(k in norm for k in ("plan a", "plan b", "plan c")):
             if lang == "en":
-                return self._pick("setup_en", [
-                    f"Copy on the balance {drv}. {rep.setup_advice_en}",
-                    f"We see the slip on telemetry. {rep.setup_advice_en} Also be progressive on the throttle out of slow zones.",
-                    f"Understood {drv}. {rep.setup_advice_en} Your peak tyre core temp is {rep.max_tyre_temp} degrees right now.",
-                ])
-            return self._pick("setup_es", [
-                f"Te copio con el comportamiento del coche {drv}. {rep.setup_advice_es}",
-                f"Vemos ese deslizamiento en los sensores del muro. {rep.setup_advice_es}",
-                f"Recibido {drv}. {rep.setup_advice_es} Acaricia el acelerador a la salida de las curvas lentas para cuidar las gomas.",
-                f"Entendido {drv}. {rep.setup_advice_es} Ahora mismo llevas las gomas a {rep.max_tyre_temp} grados de temperatura interna.",
-            ])
+                return (
+                    f"Here are our three options on the pit wall {drv}, currently on Plan {self.active_plan}. "
+                    f"{rep.plan_a_en} {rep.plan_b_en} And {rep.plan_c_en}"
+                )
+            return (
+                f"Te resumo las tres pizarras del muro {drv}, ahora mismo vamos con el Plan {self.active_plan}. "
+                f"{rep.plan_a_es} {rep.plan_b_es} Y {rep.plan_c_es}"
+            )
 
         # ------------------------------------------------------------------
-        # 6. ¿QUE COCHE / EQUIPO / PILOTO LLEVO? (Antes de buscar piloto rival!)
+        # 7. ORDENES DE EQUIPO / COMPAÑERO DE EQUIPO ("DEJO ADELANTAR A MI COMPAÑERO", "MULTI 21")
         # ------------------------------------------------------------------
-        if any(k in norm for k in ("que coche", "que equipo", "escuderia", "monoplaza llevo", "coche llevo", "quien soy", "que piloto soy", "mi coche", "what car", "what team", "who am i")):
-            drv_tag = f" de {rep.player_driver}" if rep.player_driver and rep.player_driver.upper() != drv.upper() else ""
-            if lang == "en":
-                return self._pick("car_en", [
-                    f"You are driving the {rep.player_team} car ({rep.player_driver}), currently running P{rep.position} of {rep.total_cars} on {rep.current_tyre} tyres. {rep.damage_summary_en}",
-                    f"You're at the wheel of the {rep.player_team}, P{rep.position} on track with {rep.ers_pct} percent battery and {rep.current_tyre} tyres.",
-                    f"You are in the {rep.player_team} machine running P{rep.position}, lap {rep.current_lap} of {rep.total_laps}. {rep.damage_summary_en}",
-                ])
-            return self._pick("car_es", [
-                f"Estás al volante del {rep.player_team}{drv_tag}, rodando en la posición {rep.position} de {rep.total_cars} con goma {rep.current_tyre_es} de {rep.tyre_age} vueltas. {rep.damage_summary_es}",
-                f"Conduces el {rep.player_team}{drv_tag}, ahora mismo en el puesto {rep.position} de carrera con neumático {rep.current_tyre_es} y batería al {rep.ers_pct} por ciento.",
-                f"Llevas el monoplaza de {rep.player_team}{drv_tag}. Vas en posición {rep.position} en la vuelta {rep.current_lap} de {rep.total_laps}, delante tienes a {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos.",
-                f"Ruedas con el {rep.player_team}{drv_tag} en el puesto {rep.position}. {rep.damage_summary_es} Tus gomas {rep.current_tyre_es}s están al {rep.max_wear_pct:.0f} por ciento.",
-            ])
-
-        # ------------------------------------------------------------------
-        # 7. ¿DONDE ESTA MI COMPAÑERO DE EQUIPO?
-        # ------------------------------------------------------------------
-        if any(k in norm for k in ("companero", "compañero", "teammate", "el otro coche")):
+        if any(k in norm for k in ("companero", "compañero", "teammate", "el otro coche", "ordenes de equipo", "team orders", "multi 21", "swap positions", "invert the cars")):
+            is_team_order_q = any(
+                k in norm
+                for k in (
+                    "adelantar", "dejo", "pasar", "pase", "beneficio", "beneficios",
+                    "ordenes", "intercambiar", "invertir", "swap", "let him", "pass", "orders", "multi",
+                )
+            )
             if rep.teammate_pos > 0:
+                if is_team_order_q:
+                    pos_diff = rep.teammate_pos - rep.position
+                    if pos_diff == 1:
+                        # El companero va justo detras (p.ej. tu P4, el P5)
+                        if lang == "en":
+                            return (
+                                f"{rep.teammate_name} is right behind you in P{rep.teammate_pos}. If he has fresher rubber, we can swap positions on the main straight so he can attack {rep.ahead_name}, and if he doesn't make it stick he gives the place back before the flag."
+                            )
+                        return (
+                            f"Tienes a tu compañero {rep.teammate_name} justo detrás en la posición {rep.teammate_pos}. Si ves que viene con mejor ritmo de gomas, puedes dejarle pasar en la recta para que intente cazar a {rep.ahead_name}, y si no lo consigue nos devuelve la posición antes de meta."
+                        )
+                    if pos_diff == -1:
+                        # El companero va justo delante (p.ej. el P3, tu P4)
+                        if lang == "en":
+                            return (
+                                f"We are talking to {rep.teammate_name}'s engineer across the pit wall right now. Close the gap under one second and we will call team orders so he lets you through cleanly."
+                            )
+                        return (
+                            f"Ya estamos hablando con el ingeniero de {rep.teammate_name} al otro lado del muro. Pégate a menos de un segundo y daremos orden de equipo para que no te defienda y te deje pasar limpio."
+                        )
+                    # Hay coches rivales entre medias (como en el log del usuario: P4 vs P8)
+                    cars_between = max(1, abs(pos_diff) - 1)
+                    if pos_diff > 1:
+                        if lang == "en":
+                            return (
+                                f"Negative on team orders right now {drv}! You are P{rep.position} and {rep.teammate_name} is back in P{rep.teammate_pos} at {rep.teammate_gap} with {cars_between} rival cars between you. Dropping back would gift free points to our rivals, keep pushing!"
+                            )
+                        return (
+                            f"¡Negativo, ni hablar de dejar pasar a {rep.teammate_name} ahora mismo {drv}! Tú ruedas en posición {rep.position} y él está atrás en el puesto {rep.teammate_pos} a {rep.teammate_gap}, con {cars_between} rivales entre vosotros. Regalaríamos posiciones gratis a otras escuderías, ¡tú tira hacia delante!"
+                        )
+                    if lang == "en":
+                        return (
+                            f"{rep.teammate_name} is way up in P{rep.teammate_pos} with {cars_between} cars between you and him. Clear the traffic ahead first and then we'll review team orders."
+                        )
+                    return (
+                        f"{rep.teammate_name} está delante en el puesto {rep.teammate_pos} con {cars_between} coches entre medias. Quítate primero el tráfico de delante y luego vemos si invertimos posiciones."
+                    )
+
                 if lang == "en":
                     return self._pick("mate_en", [
                         f"Your teammate {rep.teammate_name} in the other {rep.player_team} is currently P{rep.teammate_pos}, {rep.teammate_gap} off the leader.",
@@ -361,32 +560,117 @@ class EngineerBrain:
             return f"Ahora mismo no tengo señal de telemetría del segundo coche de {rep.player_team}, tú céntrate en tu posición {rep.position}."
 
         # ------------------------------------------------------------------
-        # 8. ¿PREGUNTA POR UN PILOTO CONCRETO DE LA PARRILLA?
+        # 8. ¿QUE COCHE / EQUIPO / PILOTO LLEVO?
         # ------------------------------------------------------------------
-        for r in standings:
-            dname = r["name"].lower().replace("ü", "u")
-            if len(dname) >= 4 and dname in norm:
-                if r.get("is_player"):
-                    if lang == "en":
-                        return f"That's your car {drv}! You are P{rep.position} in the {rep.player_team}, ahead is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds."
-                    return f"¡Ese eres tú con el {rep.player_team}, {drv}! Vas en posición {rep.position}, con {rep.ahead_name} delante a {rep.ahead_gap_s:.1f} segundos."
-                if lang == "en":
-                    return self._pick("drv_en", [
-                        f"Copy, {r['name']} is currently P{r['pos']} in the {r['team']}, {r['gap_leader']} off the lead on {r['tyre']}.",
-                        f"{r['name']} is running in P{r['pos']} right now, {r['gap_leader']} behind the leader, last lap was {r['last_lap']}.",
-                        f"Checking the board, {r['name']} holds P{r['pos']} for {r['team']} on {r['tyre']}, clocking {r['last_lap']} last time around.",
-                    ])
-                return self._pick("drv_es", [
-                    f"Te confirmo, {r['name']} rueda ahora mismo en la posición {r['pos']} con el {r['team']}, a {r['gap_leader']} de la cabeza.",
-                    f"Ahora mismo {r['name']} está en el puesto {r['pos']}, su última vuelta ha sido {r['last_lap']} y monta goma {r['tyre']}.",
-                    f"Localizado en el monitor, {r['name']} va en la posición {r['pos']} con el {r['team']}, a {r['gap_leader']} del líder y con {r['pits']} paradas.",
-                    f"{r['name']} marcha en el puesto {r['pos']} con neumáticos {r['tyre']}, marcando {r['last_lap']} en su último paso por meta.",
+        if any(k in norm for k in ("que coche", "que equipo", "escuderia", "monoplaza llevo", "coche llevo", "quien soy", "que piloto soy", "mi coche", "what car", "what team", "who am i")):
+            drv_tag = f" de {rep.player_driver}" if rep.player_driver and rep.player_driver.upper() != drv.upper() else ""
+            if lang == "en":
+                return self._pick("car_en", [
+                    f"You are driving the {rep.player_team} car ({rep.player_driver}), currently running P{rep.position} of {rep.total_cars} on {rep.current_tyre} tyres. {rep.damage_summary_en}",
+                    f"You're at the wheel of the {rep.player_team}, P{rep.position} on track with {rep.ers_pct} percent battery and {rep.current_tyre} tyres.",
                 ])
+            return self._pick("car_es", [
+                f"Estás al volante del {rep.player_team}{drv_tag}, rodando en la posición {rep.position} de {rep.total_cars} con goma {rep.current_tyre_es} de {rep.tyre_age} vueltas. {rep.damage_summary_es}",
+                f"Conduces el {rep.player_team}{drv_tag}, ahora mismo en el puesto {rep.position} de carrera con neumático {rep.current_tyre_es} y batería al {rep.ers_pct} por ciento.",
+            ])
 
         # ------------------------------------------------------------------
-        # 9. ¿QUIEN VA EN UNA POSICION CONCRETA? ("quien va segundo / tercero / P1 / ultimo...")
+        # 9. CONSULTA DE PILOTO RIVAL: ¿CUANDO HA PARADO X? / ¿CUANDO PARARA X? / ESTADO DE X
         # ------------------------------------------------------------------
-        if any(q in norm for q in ("quien va", "quien esta", "quien es el", "quien lidera", "who is in", "who is p", "who's in", "who leads", "segunda posicion", "tercera posicion", "primera posicion", "cuarta posicion", "quinta posicion", "ultimo", "last place")):
+        rival_row = self._match_rival_in_standings(norm, words, standings)
+        asking_rival_pit_hist = any(
+            k in norm
+            for k in (
+                "cuando ha parado", "ha parado", "en que vuelta ha parado", "hizo la parada",
+                "cuantas paradas lleva", "paradas lleva", "when did", "has he pitted",
+                "did he pit", "how many stops",
+            )
+        )
+        asking_rival_pit_pred = any(
+            k in norm
+            for k in (
+                "cuando crees que parara", "cuando parara", "cuando va a parar", "en que vuelta parara",
+                "en que vuelta va a parar", "volvera a parar", "va a parar", "when will",
+                "when do you think", "going to pit", "going to box", "will he pit", "will he box",
+            )
+        )
+        # Si pregunta "cuando ha parado el de delante / lider / detras" sin decir el nombre propio
+        if rival_row is None and (asking_rival_pit_hist or asking_rival_pit_pred):
+            if any(k in norm for k in ("delante", "ahead", "in front")):
+                rival_row = next((r for r in standings if r["pos"] == rep.position - 1), None)
+            elif any(k in norm for k in ("detras", "behind")):
+                rival_row = next((r for r in standings if r["pos"] == rep.position + 1), None)
+            elif any(k in norm for k in ("lider", "primero", "leader", "p1")):
+                rival_row = standings[0] if standings else None
+
+        if rival_row is not None:
+            if rival_row.get("is_player") and not (asking_rival_pit_hist or asking_rival_pit_pred):
+                if lang == "en":
+                    return f"That's your car {drv}! You are P{rep.position} in the {rep.player_team}, ahead is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds."
+                return f"¡Ese eres tú con el {rep.player_team}, {drv}! Vas en posición {rep.position}, con {rep.ahead_name} delante a {rep.ahead_gap_s:.1f} segundos."
+
+            r_info = analyze_rival_pit_and_status(rival_row, rep, lang=lang)
+            if asking_rival_pit_hist and asking_rival_pit_pred:
+                return f"{r_info['history']} {r_info['prediction']}"
+            if asking_rival_pit_hist:
+                return f"{r_info['history']} {r_info['prediction']}"
+            if asking_rival_pit_pred:
+                return f"{r_info['prediction']} ({r_info['history']})"
+            return r_info["full"]
+
+        # ------------------------------------------------------------------
+        # 10. QUEJAS DE INCIDENTE / TOQUE / BANDERAS AZULES / AIRE SUCIO / TRAFICO
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("me ha chocado", "me han chocado", "me ha tocado", "me ha dado", "me ha empujado", "me ha echado", "me ha cerrado", "has visto eso", "que hace este", "incident", "hit me", "pushed me", "turned in on me")):
+            if lang == "en":
+                return self._pick("inc_en", [
+                    f"We saw that on the pit wall cameras {drv}, we are reporting it to the stewards right now. {rep.damage_summary_en} Keep your head cool.",
+                    f"Unbelievable driving from him, we have sent the telemetry clip to Race Control. {rep.damage_summary_en} Settle back into your rhythm.",
+                ])
+            return self._pick("inc_es", [
+                f"Lo hemos visto por las cámaras del muro {drv}, ya nos estamos quejando a dirección de carrera. {rep.damage_summary_es} Cabeza fría y devuélvesela en pista.",
+                f"Menuda maniobra más sucia te ha hecho, ya lo hemos reportado a los comisarios. {rep.damage_summary_es} No entres al trapo y céntrate en tu ritmo.",
+            ])
+
+        if any(k in norm for k in ("bandera azul", "banderas azules", "doblado", "doblados", "no se aparta", "trafico", "blue flag", "blue flags", "backmarker", "traffic")):
+            if lang == "en":
+                return (
+                    f"We are on to Race Control about the blue flags right now {drv}. Stay patient through the corners and pass him safely on the next straight."
+                )
+            return (
+                f"Ya estamos reclamando las banderas azules a dirección de carrera desde el muro, {drv}. No arriesgues el alerón en curva y pásale en la recta."
+            )
+
+        if any(k in norm for k in ("aire sucio", "tren de drs", "se calienta detras", "dirty air", "drs train")):
+            if lang == "en":
+                return (
+                    f"You are in dirty air behind {rep.ahead_name}, tyre temps are at {rep.max_tyre_temp} degrees. Pull out of his wake on the straights to cool the brakes and consider switching to Plan B undercut."
+                )
+            return (
+                f"Estás comiéndote todo el aire sucio de {rep.ahead_name} y las gomas van a {rep.max_tyre_temp} grados. Sal un poco de su rebufo en recta para refrigerar o dime si activamos el Plan B para hacerle el undercut."
+            )
+
+        # ------------------------------------------------------------------
+        # 11. QUEJAS DEL COCHE / MANEJO (SUBVIRAJE, SOBREVIRAJE, FALTA DE AGARRE, REGLAJES)
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("no gira", "subviraje", "se va de delante", "morro", "sobreviraje", "se va de atras", "patina", "desliza", "no tengo agarre", "sin agarre", "traccion", "bloqueo", "diferencial", "reglaje", "setup", "understeer", "oversteer", "no grip", "sliding", "traction", "balance")):
+            if lang == "en":
+                return self._pick("setup_en", [
+                    f"Copy on the balance {drv}. {rep.setup_advice_en}",
+                    f"We see the slip on telemetry. {rep.setup_advice_en} Also be progressive on the throttle out of slow zones.",
+                ])
+            return self._pick("setup_es", [
+                f"Te copio con el comportamiento del coche {drv}. {rep.setup_advice_es}",
+                f"Vemos ese deslizamiento en los sensores del muro. {rep.setup_advice_es}",
+                f"Recibido {drv}. {rep.setup_advice_es} Acaricia el acelerador a la salida de las curvas lentas para cuidar las gomas.",
+            ])
+
+        # ------------------------------------------------------------------
+        # 12. ¿QUIEN VA EN UNA POSICION CONCRETA? ("quien va segundo / tercero / P1 / ultimo...")
+        # ------------------------------------------------------------------
+        if any(q in norm for q in ("quien va", "quien esta", "quien es el", "quien lidera", "who is in", "who is p", "who's in", "who leads", "segunda posicion", "tercera posicion", "primera posicion", "cuarta posicion", "quinta posicion", "ultimo", "last place")) and not any(
+            f in norm for f in ("delante", "detras", "in front", "ahead", "behind")
+        ):
             if "ultimo" in norm or "last place" in norm:
                 last_r = standings[-1]
                 if lang == "en":
@@ -405,20 +689,11 @@ class EngineerBrain:
                         if lang == "en":
                             return f"That is you {drv}! You are running in P{target_pos} right now, ahead is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds."
                         return f"¡En la posición {target_pos} vas tú mismo con el {rep.player_team}, {drv}! Tienes a {rep.ahead_name} delante a {rep.ahead_gap_s:.1f} segundos."
-                    if lang == "en":
-                        return self._pick("who_pos_en", [
-                            f"P{target_pos} right now is {row['name']} in the {row['team']}, {row['gap_leader']} behind the leader on {row['tyre']}.",
-                            f"Currently in P{target_pos} we have {row['name']}, last lap was {row['last_lap']} on {row['tyre']}.",
-                            f"Holding P{target_pos} is {row['name']} for {row['team']}, running {row['gap_leader']} off P1.",
-                        ])
-                    return self._pick("who_pos_es", [
-                        f"En la posición {target_pos} rueda ahora mismo {row['name']} con el {row['team']}, a {row['gap_leader']} del líder.",
-                        f"Ahora mismo el puesto {target_pos} lo ocupa {row['name']}, viene marcando {row['last_lap']} en su última vuelta con {row['tyre']}.",
-                        f"En ese puesto {target_pos} tenemos a {row['name']} al volante del {row['team']}, a {row['gap_leader']} de la cabeza de carrera.",
-                    ])
+                    r_info = analyze_rival_pit_and_status(row, rep, lang=lang)
+                    return r_info["full"]
 
         # ------------------------------------------------------------------
-        # 10. ¿VIENE A CUENTO DE LA CARRERA? SI NO -> BRONCA VARIADA DE INGENIERO
+        # 13. ¿VIENE A CUENTO DE LA CARRERA? SI NO -> BRONCA VARIADA DE INGENIERO
         # ------------------------------------------------------------------
         if not (words & RACING_KEYWORDS):
             if lang == "en":
@@ -427,8 +702,6 @@ class EngineerBrain:
                     f"Not now {drv}! Keep your mind in the cockpit and hit your braking markers, we will talk about that later.",
                     f"Eyes on the tarmac {drv}! Save the chit-chat for the hospitality motorhome after the chequered flag.",
                     f"We are in the middle of a Grand Prix {drv}, concentrate on your corners and forget about that!",
-                    f"Cut the distractions on the radio {drv}, watch your mirrors and hit your apexes, copy.",
-                    f"Are you serious {drv}? You have {rep.ahead_name} {rep.ahead_gap_s:.1f} seconds ahead, focus on driving!",
                     f"Radio is for race calls only {drv}, keep both hands on the wheel and push through this sector.",
                 ])
             return self._pick("scold_es", [
@@ -437,15 +710,11 @@ class EngineerBrain:
                 f"¡Concéntrate en conducir, {drv}! Estamos en mitad de sesión, vigila las referencias de frenada, copy.",
                 f"Déjate de distracciones por la radio {drv}, que te estás dejando dos décimas en este sector. ¡A la pista!",
                 f"Eso lo discutimos luego en el motorhome {drv}, ahora mismo quiero tus cinco sentidos en el asfalto.",
-                f"¡Ojos en el trazado, {drv}! No me vengas con esos temas a doscientos cincuenta por hora, concéntrate.",
-                f"Corta el rollo por la radio {drv} y métete en la trazada, que tienes a {rep.behind_name} detrás a {rep.behind_gap_s:.1f} segundos.",
-                f"¿En serio me preguntas eso en plena carrera, {drv}? Tienes a {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos, ¡ponte a conducir!",
                 f"La radio está para hablar de telemetría y estrategia {drv}, no para charlar. Baja la visera y aprieta.",
-                f"No pierdas la concentración con tonterías {drv}, clava la frenada de la siguiente curva y sigue tirando.",
             ])
 
         # ------------------------------------------------------------------
-        # 11. PODIO / TOP 3 / ¿A CUANTO TENGO EL PODIO?
+        # 14. PODIO / TOP 3 / PUNTOS / TOP 10 / ABANDONOS
         # ------------------------------------------------------------------
         if any(k in norm for k in ("podio", "podium", "top 3", "tres primeros", "tres primeras")):
             top3 = standings[:3]
@@ -458,9 +727,6 @@ class EngineerBrain:
                 return f"The podium right now is {p3_names}. You are P{rep.position}, {rep.podium_gap_s:.1f} seconds away from P3."
             return f"El podio provisional lo forman {p3_names}. Tú ruedas en posición {rep.position}, tienes el tercer cajón del podio a {rep.podium_gap_s:.1f} segundos."
 
-        # ------------------------------------------------------------------
-        # 12. PUNTOS / TOP 10 / ¿ESTOY EN LOS PUNTOS?
-        # ------------------------------------------------------------------
         if any(k in norm for k in ("puntos", "zona de puntos", "top 10", "diez primeros", "points")):
             p10_r = next((r for r in standings if r["pos"] == 10), standings[-1])
             if rep.position <= 10:
@@ -471,9 +737,6 @@ class EngineerBrain:
                 return f"You are currently P{rep.position}, outside the points by {rep.position - 10} positions and {rep.points_gap_s:.1f} seconds behind P10 {p10_r['name']}."
             return f"Ahora mismo estás fuera de los puntos en la posición {rep.position}. Tienes el décimo puesto de {p10_r['name']} a {rep.points_gap_s:.1f} segundos y {rep.position - 10} coches por delante."
 
-        # ------------------------------------------------------------------
-        # 13. ABANDONOS / COCHES RETIRADOS / DNF
-        # ------------------------------------------------------------------
         if any(k in norm for k in ("abandonado", "abandono", "retirado", "cuantos coches quedan", "dnf", "retired")):
             if rep.retired_names:
                 rlist = ", ".join(rep.retired_names)
@@ -485,7 +748,7 @@ class EngineerBrain:
             return f"Siguen los {rep.total_cars} coches en pista {drv}, de momento no ha abandonado nadie."
 
         # ------------------------------------------------------------------
-        # 14. ¿LE RECORTAMOS / EN CUANTAS VUELTAS LE PILLO / COMPARACION DE RITMO?
+        # 15. ¿LE RECORTAMOS / EN CUANTAS VUELTAS LE PILLO / COMPARACION DE RITMO?
         # ------------------------------------------------------------------
         if any(k in norm for k in ("recorto", "recortando", "pillo", "pillar", "alcanzar", "alcanzo", "cazar", "mas rapido", "mas lento", "catching", "catch", "faster", "slower")):
             if lang == "en":
@@ -496,11 +759,10 @@ class EngineerBrain:
             return self._pick("pace_es", [
                 f"{rep.pace_analysis_es} Tu última vuelta ha sido {rep.last_lap_str} frente al {rep.ahead_last_lap} de {rep.ahead_name}.",
                 f"Comparando telemetrías en el muro, {rep.pace_analysis_es.lower()}",
-                f"Te doy el delta de ritmo, {rep.pace_analysis_es.lower()} Por detrás {rep.behind_name} ha marcado {rep.behind_last_lap}.",
             ])
 
         # ------------------------------------------------------------------
-        # 15. ¿COMO LE ADELANTO / DONDE ATACO / COMO ME DEFIENDO?
+        # 16. ¿COMO LE ADELANTO / DONDE ATACO / COMO ME DEFIENDO?
         # ------------------------------------------------------------------
         if any(k in norm for k in ("ataco", "atacar", "adelanto", "adelantar", "defiendo", "defender", "attack", "defend", "overtake")):
             if lang == "en":
@@ -511,77 +773,103 @@ class EngineerBrain:
             return self._pick("atk_es", [
                 f"Tienes un {rep.ers_pct} por ciento de batería. Recarga en las zonas reviradas, tracciona limpio al salir a la recta principal y vacía el botón de adelantamiento con DRS sobre {rep.ahead_name}.",
                 f"Para pasar a {rep.ahead_name}, sacrifica un poco la entrada de la curva previa a la zona de DRS para salir con mucha más tracción que él. Lo tienes a {rep.ahead_gap_s:.1f} segundos.",
-                f"Para defenderte de {rep.behind_name}, protege el carril interior en la frenada fuerte y despliega un golpe de ERS justo al subir de tercera a cuarta marcha.",
             ])
 
         # ------------------------------------------------------------------
-        # 16. TIEMPOS DE VUELTA / ULTIMA VUELTA / MEJOR VUELTA / RITMO
+        # 17. TIEMPOS DE VUELTA / ULTIMA VUELTA HECHA / MEJOR VUELTA / CRONO
+        #     (Importante: evaluado ANTES de vueltas restantes para capturar "que tiempo he hecho en la ultima vuelta")
         # ------------------------------------------------------------------
-        if any(k in norm for k in ("tiempo de vuelta", "ultimo tiempo", "mejor vuelta", "vuelta rapida", "crono", "ritmo", "sector", "sectores", "lap time", "last lap", "best lap", "fastest lap", "pace")):
+        if any(
+            k in norm
+            for k in (
+                "tiempo de vuelta", "ultimo tiempo", "mejor vuelta", "vuelta rapida",
+                "que tiempo he", "que tiempo hecha", "tiempo en la ultima", "tiempo de la ultima",
+                "crono", "ritmo", "sector", "sectores", "lap time", "last lap time",
+                "best lap", "fastest lap", "pace",
+            )
+        ):
             if lang == "en":
                 return self._pick("laptime_en", [
                     f"Your last lap was {rep.last_lap_str}, and your personal best is {rep.best_lap_str}. Ahead, {rep.ahead_name} just did a {rep.ahead_last_lap}.",
                     f"Stopwatch check, you crossed the line in {rep.last_lap_str}. Behind you, {rep.behind_name} clocked a {rep.behind_last_lap}. {rep.pace_analysis_en}",
-                    f"Last time around was {rep.last_lap_str}, best of the session is {rep.best_lap_str}. {rep.pace_analysis_en}",
                 ])
             return self._pick("laptime_es", [
                 f"Tu último paso por meta ha sido {rep.last_lap_str}, y tu mejor vuelta de la sesión es {rep.best_lap_str}. Delante, {rep.ahead_name} ha rodado en {rep.ahead_last_lap}.",
                 f"Mirando el crono, vienes de marcar un {rep.last_lap_str}. Por comparar, {rep.behind_name} detrás ha hecho {rep.behind_last_lap} en el último giro.",
-                f"Tu última vuelta fue {rep.last_lap_str}. {rep.pace_analysis_es}",
                 f"Acabas de cruzar meta en {rep.last_lap_str}, con un mejor registro personal de {rep.best_lap_str}. {rep.pace_analysis_es}",
             ])
 
         # ------------------------------------------------------------------
-        # 17. COMBUSTIBLE / GASOLINA / MEZCLA
+        # 18. NEUMATICOS / RUEDAS / DESGASTE / TEMPERATURAS
+        #     (Incluye fix fonetico Vosk "lo mas rico" -> "neumatico", evaluado ANTES de "cuantas vueltas quedan")
+        # ------------------------------------------------------------------
+        if any(
+            k in norm
+            for k in (
+                "neumatico", "neumaticos", "lo mas rico", "mas rico", "rueda", "ruedas",
+                "goma", "gomas", "desgaste", "degradacion", "agarre", "temperatura",
+                "temperaturas", "tyre", "tyres", "tire", "tires", "wear", "temp",
+            )
+        ):
+            if lang == "en":
+                return self._pick("tyre_en", [
+                    f"Your {rep.current_tyre} tyres are {rep.tyre_age} laps old, peak wear is {rep.max_wear_pct:.0f} percent on the {rep.worst_wheel_en}, degrading at {rep.wear_per_lap:.1f} percent per lap. Around {rep.est_tyre_laps_left} good laps left.",
+                    f"Tyre check, {rep.max_wear_pct:.0f} percent wear on the {rep.worst_wheel_en}, core temperature is {rep.max_tyre_temp} degrees. They will hold for another {rep.est_tyre_laps_left} laps.",
+                ])
+            return self._pick("tyre_es", [
+                f"Llevas goma {rep.current_tyre_es} con {rep.tyre_age} vueltas, el mayor desgaste es del {rep.max_wear_pct:.0f} por ciento en la {rep.worst_wheel_es}. Te quedan unas {rep.est_tyre_laps_left} vueltas óptimas de neumático.",
+                f"Revisando las gomas, tienes un {rep.max_wear_pct:.0f} por ciento de desgaste en la {rep.worst_wheel_es} y {rep.max_tyre_temp} grados de temperatura interna. Aguantan bien otras {rep.est_tyre_laps_left} vueltas.",
+                f"Tus neumáticos {rep.current_tyre_es}s van por el {rep.max_wear_pct:.0f} por ciento de desgaste, degradando un {rep.wear_per_lap:.1f} por vuelta. Les quedan unos {rep.est_tyre_laps_left} giros buenos.",
+            ])
+
+        # ------------------------------------------------------------------
+        # 19. COMBUSTIBLE / GASOLINA / MEZCLA
         # ------------------------------------------------------------------
         if any(k in norm for k in ("combustible", "gasolina", "mezcla", "deposito", "tanque", "lift", "coast", "fuel", "mix")):
             if lang == "en":
                 return self._pick("fuel_en", [
                     f"{rep.fuel_advice_en} We have {rep.fuel_kg:.1f} kilos in the tank.",
                     f"Fuel check, {rep.fuel_kg:.1f} kilograms remaining, margin is {rep.fuel_laps_margin:+.1f} laps to the finish.",
-                    f"Tank is at {rep.fuel_kg:.1f} kilos, {rep.fuel_laps_margin:+.1f} laps delta. {rep.fuel_advice_en}",
                 ])
             return self._pick("fuel_es", [
                 f"{rep.fuel_advice_es} Llevamos ahora mismo {rep.fuel_kg:.1f} kilos en el depósito.",
                 f"Revisando el tanque, nos quedan {rep.fuel_kg:.1f} kilos de combustible, un margen de {rep.fuel_laps_margin:+.1f} vueltas respecto al objetivo.",
-                f"De gasolina vamos con {rep.fuel_laps_margin:+.1f} vueltas de margen y {rep.fuel_kg:.1f} kilos a bordo. {rep.fuel_advice_es}",
-                f"El caudalímetro marca {rep.fuel_kg:.1f} kilos restantes. {rep.fuel_advice_es}",
             ])
 
         # ------------------------------------------------------------------
-        # 18. BATERIA / ERS / ENERGIA
+        # 20. BATERIA / ERS / ENERGIA / FRENOS / SANCIONES
         # ------------------------------------------------------------------
         if any(k in norm for k in ("ers", "bateria", "energia", "mapa", "battery", "energy", "deploy")):
             if lang == "en":
-                return self._pick("ers_en", [
-                    f"ERS battery charge is at {rep.ers_pct} percent in {rep.ers_mode} deployment mode.",
-                    f"You have {rep.ers_pct} percent battery available right now, mode is set to {rep.ers_mode}.",
-                    f"Hybrid system shows {rep.ers_pct} percent state of charge, harvesting cleanly under braking.",
-                ])
-            return self._pick("ers_es", [
-                f"La batería del ERS está al {rep.ers_pct} por ciento de carga, llevas el mapa en modo {rep.ers_mode_es}.",
-                f"Tienes un {rep.ers_pct} por ciento de energía eléctrica disponible ahora mismo, modo {rep.ers_mode_es} activado.",
-                f"El sistema híbrido marca un {rep.ers_pct} por ciento de batería en modo {rep.ers_mode_es}, regenerando bien en las frenadas fuertes.",
-            ])
+                return f"ERS battery charge is at {rep.ers_pct} percent in {rep.ers_mode} deployment mode."
+            return f"La batería del ERS está al {rep.ers_pct} por ciento de carga, llevas el mapa en modo {rep.ers_mode_es}."
 
-        # ------------------------------------------------------------------
-        # 19. FRENOS / REPARTO DE FRENADA
-        # ------------------------------------------------------------------
         if any(k in norm for k in ("freno", "frenos", "reparto", "frenada", "brake", "brakes", "bias")):
             if lang == "en":
                 return f"Brake bias is set to {rep.brake_bias} percent front, peak brake disc temperature is {rep.max_brake_temp} degrees. {rep.setup_advice_en}"
             return f"Llevas el reparto de frenada al {rep.brake_bias} por ciento delante, y los discos están a {rep.max_brake_temp} grados de pico. {rep.setup_advice_es}"
 
-        # ------------------------------------------------------------------
-        # 20. SANCIONES / AVISOS / LIMITES DE PISTA
-        # ------------------------------------------------------------------
         if any(k in norm for k in ("sancion", "sanciones", "penalizacion", "aviso", "avisos", "limites", "penalty", "penalties", "warning", "warnings", "limits")):
             if lang == "en":
                 return f"You have {rep.penalties_s} seconds of time penalties and {rep.warnings_count} track limit warnings so far."
             return f"Llevas {rep.penalties_s} segundos de sanción acumulada y {rep.warnings_count} avisos por límites de pista. Mantén dos ruedas dentro de la línea blanca."
 
         # ------------------------------------------------------------------
-        # 21. ¿EN QUE POSICION VOY? / ¿COMO VOY?
+        # 21. COCHE DE DELANTE / DETRAS / GAPS / DRS ("who is in front of me" / "quien tengo delante")
+        # ------------------------------------------------------------------
+        if any(k in norm for k in ("delante", "detras", "distancia", "gap", "diferencia", "ahead", "in front", "front of me", "behind", "interval", "drs")):
+            if lang == "en":
+                return self._pick("gaps_en", [
+                    f"You are P{rep.position}. Ahead of you is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds on {rep.ahead_tyre}, and behind is {rep.behind_name} at {rep.behind_gap_s:.1f} seconds.",
+                    f"In front of you is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds, and in your mirrors {rep.behind_name} is {rep.behind_gap_s:.1f} back. {rep.pace_analysis_en}",
+                ])
+            return self._pick("gaps_es", [
+                f"Vas en posición {rep.position}. Delante tienes a {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos con {rep.ahead_tyre}, y por detrás viene {rep.behind_name} a {rep.behind_gap_s:.1f} segundos.",
+                f"Tus referencias en pista son {rep.ahead_name} por delante a {rep.ahead_gap_s:.1f} segundos y {rep.behind_name} en tus retrovisores a {rep.behind_gap_s:.1f}. {rep.pace_analysis_es}",
+            ])
+
+        # ------------------------------------------------------------------
+        # 22. ¿EN QUE POSICION VOY? / ¿COMO VOY?
         # ------------------------------------------------------------------
         if any(k in norm for k in ("en que posicion", "que posicion voy", "que puesto voy", "en que puesto", "como voy", "como vamos", "posicion", "puesto", "what position am", "where am i")) and not any(
             k in norm for k in ("primera", "primeras", "primeros", "top", "cinco", "diez", "clasificacion", "tabla", "parrilla")
@@ -590,42 +878,36 @@ class EngineerBrain:
                 return self._pick("mypos_en", [
                     f"You are running in P{rep.position} of {rep.total_cars} right now in the {rep.player_team}, lap {rep.current_lap} of {rep.total_laps}. Ahead is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds, behind is {rep.behind_name} at {rep.behind_gap_s:.1f}.",
                     f"Currently P{rep.position} {drv}. You have {rep.ahead_name} {rep.ahead_gap_s:.1f} seconds up the road and {rep.behind_name} {rep.behind_gap_s:.1f} behind you.",
-                    f"You hold P{rep.position} on lap {rep.current_lap} of {rep.total_laps}, {rep.laps_remaining} laps remaining. Gap ahead to {rep.ahead_name} is {rep.ahead_gap_s:.1f} seconds.",
-                    f"P{rep.position} on track {drv}. {rep.ahead_name} is your target ahead at {rep.ahead_gap_s:.1f}, and {rep.behind_name} is {rep.behind_gap_s:.1f} behind in your mirrors.",
                 ])
             return self._pick("mypos_es", [
                 f"Vas en la posición {rep.position} de {rep.total_cars} con el {rep.player_team}, vuelta {rep.current_lap} de {rep.total_laps}. Delante tienes a {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos y detrás a {rep.behind_name} a {rep.behind_gap_s:.1f}.",
                 f"Ruedas en el puesto {rep.position} ahora mismo {drv}. Tu referencia delante es {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos, y por los espejos viene {rep.behind_name} a {rep.behind_gap_s:.1f}.",
-                f"Estás en posición {rep.position} de {rep.total_cars} coches, a falta de {rep.laps_remaining} vueltas. Delante {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos, detrás {rep.behind_name} a {rep.behind_gap_s:.1f}.",
-                f"Marchas en el puesto {rep.position} en el giro {rep.current_lap} de {rep.total_laps}. Tienes a {rep.ahead_name} delante a {rep.ahead_gap_s:.1f} segundos con {rep.ahead_tyre}, y a {rep.behind_name} detrás a {rep.behind_gap_s:.1f}.",
-                f"Ahora mismo ocupas la posición {rep.position} al volante del {rep.player_team}. Objetivo delante {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos; por detrás {rep.behind_name} a {rep.behind_gap_s:.1f}.",
             ])
 
         # ------------------------------------------------------------------
-        # 22. ESTRATEGIA / ¿DEBERIA PARAR EN BOXES? / PROXIMA PARADA
+        # 23. ESTRATEGIA / ¿DEBERIA PARAR EN BOXES? / PROXIMA PARADA
         # ------------------------------------------------------------------
-        if any(k in norm for k in ("estrategia", "plan", "parar", "paro", "parada", "proxima parada", "boxes", "box", "pit", "ventana", "undercut", "overcut", "deberia", "entro", "entrar", "strategy", "window", "should", "stop")):
+        if any(k in norm for k in ("estrategia", "parar", "paro", "parada", "proxima parada", "boxes", "box", "pit", "ventana", "undercut", "overcut", "deberia", "entro", "entrar", "strategy", "window", "should", "stop", "lobbies")):
+            if "BOX" in rep.box_recommendation or rep.box_recommendation == "PIT WINDOW OPEN":
+                self.spotter.order_box_now(rep.current_lap)
             if lang == "en":
                 return self._pick("strat_en", [
-                    f"Strategy call right now is {rep.box_recommendation}. Ideal window is lap {rep.pit_window_ideal} to {rep.pit_window_latest}. {rep.rejoin_summary_en}",
-                    f"Looking at the pit wall numbers, {rep.rejoin_summary_en} {rep.undercut_summary_en}",
-                    f"Plan A is {rep.box_recommendation}. Your {rep.current_tyre}s have around {rep.est_tyre_laps_left} strong laps left. {rep.rejoin_summary_en}",
+                    f"Active Plan {self.active_plan} call is {rep.box_recommendation}. Ideal window is lap {rep.pit_window_ideal} to {rep.pit_window_latest}. {rep.rejoin_summary_en}",
+                    f"Looking at the pit wall numbers on Plan {self.active_plan}, {rep.rejoin_summary_en} {rep.undercut_summary_en}",
                 ])
             rec_map = {
                 "STAY OUT": "mantenernos fuera en pista y alargar el stint",
-                "PIT WINDOW OPEN": "ventana de parada abierta, podemos entrar cuando quieras",
+                "PIT WINDOW OPEN": "ventana de parada abierta, podemos entrar en esta vuelta",
                 "HOLD OUT FOR RAIN": "aguantar en pista esperando a que descargue la lluvia",
             }
             rec_es = rec_map.get(rep.box_recommendation, "entrar a boxes en esta misma vuelta")
             return self._pick("strat_es", [
-                f"El plan en el muro es {rec_es}. Nuestra ventana ideal va de la vuelta {rep.pit_window_ideal} a la {rep.pit_window_latest}. {rep.rejoin_summary_es}",
-                f"Mirando las simulaciones de estrategia, te recomiendo {rec_es}. {rep.rejoin_summary_es} {rep.undercut_summary_es}",
-                f"Ahora mismo la orden táctica es {rec_es}. A tus gomas les quedan unas {rep.est_tyre_laps_left} vueltas fuertes; {rep.rejoin_summary_es.lower()}",
-                f"En la pizarra del muro tenemos marcado {rec_es}. {rep.rejoin_summary_es} {rep.pace_analysis_es}",
+                f"Bajo nuestro Plan {self.active_plan}, la orden es {rec_es}. La ventana ideal va de la vuelta {rep.pit_window_ideal} a la {rep.pit_window_latest}. {rep.rejoin_summary_es}",
+                f"Mirando las simulaciones del Plan {self.active_plan}, te recomiendo {rec_es}. {rep.rejoin_summary_es} {rep.undercut_summary_es}",
             ])
 
         # ------------------------------------------------------------------
-        # 23. ¿CUANTAS VUELTAS QUEDAN? / VUELTA ACTUAL
+        # 24. ¿CUANTAS VUELTAS QUEDAN? / VUELTA ACTUAL
         # ------------------------------------------------------------------
         if any(k in norm for k in ("cuantas vueltas", "que vuelta", "queda", "quedan", "falta", "faltan", "ultima vuelta", "laps left", "remaining", "many laps", "what lap")):
             if rep.laps_remaining <= 1 and rep.total_laps >= 2 and rep.current_lap >= rep.total_laps:
@@ -636,17 +918,14 @@ class EngineerBrain:
                 return self._pick("laps_en", [
                     f"We are on lap {rep.current_lap} of {rep.total_laps}, so {rep.laps_remaining} laps to go. Tyres have about {rep.est_tyre_laps_left} good laps in them.",
                     f"{rep.laps_remaining} laps remaining up to the chequered flag, currently on lap {rep.current_lap} of {rep.total_laps}.",
-                    f"Lap {rep.current_lap} of {rep.total_laps} right now {drv}, {rep.laps_remaining} to the finish and fuel margin is {rep.fuel_laps_margin:+.1f} laps.",
                 ])
             return self._pick("laps_es", [
                 f"Estamos en la vuelta {rep.current_lap} de {rep.total_laps}, te quedan {rep.laps_remaining} vueltas hasta la bandera a cuadros.",
                 f"Faltan {rep.laps_remaining} vueltas para terminar, vas por el giro {rep.current_lap} de {rep.total_laps} y las gomas aguantan otras {rep.est_tyre_laps_left} vueltas buenas.",
-                f"Quedan exactamente {rep.laps_remaining} vueltas {drv}, vuelta {rep.current_lap} de {rep.total_laps} en {rep.track_name}.",
-                f"Paso por la vuelta {rep.current_lap} de {rep.total_laps}, restan {rep.laps_remaining} giros y vamos con {rep.fuel_laps_margin:+.1f} vueltas de gasolina.",
             ])
 
         # ------------------------------------------------------------------
-        # 24. TOP 5 / PRIMERAS POSICIONES / CLASIFICACION GENERAL
+        # 25. TOP 5 / PRIMERAS POSICIONES / CLASIFICACION GENERAL
         # ------------------------------------------------------------------
         if any(k in norm for k in ("primera", "primero", "primeros", "posiciones", "top", "clasificacion", "parrilla", "tabla", "standings", "positions", "five", "cinco", "lider", "leader")):
             top5 = standings[:5]
@@ -655,11 +934,7 @@ class EngineerBrain:
                     f"P{r['pos']} {r['name']}" + (f" at {r['gap_leader']}" if r['pos'] > 1 else " leading")
                     for r in top5
                 ]
-                return self._pick("top5_en", [
-                    "Copy that, top five right now, " + ", ".join(parts) + f". You are P{rep.position}.",
-                    "Here is the front of the field, " + ", ".join(parts) + ".",
-                    "Classification at the front, " + ", ".join(parts) + f", while you run P{rep.position}.",
-                ])
+                return "Copy that, top five right now, " + ", ".join(parts) + f". You are P{rep.position}."
             ord_es = {1: "primero", 2: "segundo", 3: "tercero", 4: "cuarto", 5: "quinto"}
             parts = []
             for r in top5:
@@ -671,69 +946,19 @@ class EngineerBrain:
                 else:
                     parts.append(f"{r['name']} {o} a {r['gap_leader']}")
             me_tail = f" Tú ruedas en el puesto {rep.position}." if rep.position > 5 else ""
-            return self._pick("top5_es", [
-                "Ahora mismo en cabeza tenemos a " + ", ".join(parts) + f".{me_tail}",
-                "Te canto los cinco primeros, " + ", ".join(parts) + f".{me_tail}",
-                "Así está la parte alta de la tabla, " + ", ".join(parts) + f".{me_tail}",
-                "Repaso de los cinco de cabeza, " + ", ".join(parts) + f".{me_tail}",
-            ])
+            return "Ahora mismo en cabeza tenemos a " + ", ".join(parts) + f".{me_tail}"
 
         # ------------------------------------------------------------------
-        # 25. COCHE DE DELANTE / DETRAS / GAPS / DRS
-        # ------------------------------------------------------------------
-        if any(k in norm for k in ("delante", "detras", "distancia", "gap", "diferencia", "ahead", "behind", "interval", "drs")):
-            if lang == "en":
-                return self._pick("gaps_en", [
-                    f"You are P{rep.position}. Ahead is {rep.ahead_name} at {rep.ahead_gap_s:.1f} seconds on {rep.ahead_tyre}, and behind is {rep.behind_name} at {rep.behind_gap_s:.1f} seconds.",
-                    f"Interval ahead to {rep.ahead_name} is {rep.ahead_gap_s:.1f} seconds, gap behind to {rep.behind_name} is {rep.behind_gap_s:.1f} seconds. {rep.pace_analysis_en}",
-                ])
-            return self._pick("gaps_es", [
-                f"Vas en posición {rep.position}. Delante tienes a {rep.ahead_name} a {rep.ahead_gap_s:.1f} segundos con {rep.ahead_tyre}, y por detrás viene {rep.behind_name} a {rep.behind_gap_s:.1f} segundos.",
-                f"Tus referencias en pista son {rep.ahead_name} por delante a {rep.ahead_gap_s:.1f} segundos y {rep.behind_name} en tus retrovisores a {rep.behind_gap_s:.1f}. {rep.pace_analysis_es}",
-                f"El hueco con {rep.ahead_name} delante es de {rep.ahead_gap_s:.1f} segundos, y {rep.behind_name} te sigue a {rep.behind_gap_s:.1f} segundos con goma {rep.behind_tyre}.",
-            ])
-
-        # ------------------------------------------------------------------
-        # 26. NEUMATICOS / RUEDAS / DESGASTE / TEMPERATURAS
-        # ------------------------------------------------------------------
-        if any(k in norm for k in ("neumatico", "neumaticos", "rueda", "ruedas", "goma", "gomas", "desgaste", "degradacion", "agarre", "temperatura", "temperaturas", "tyre", "tyres", "tire", "tires", "wear", "temp")):
-            if lang == "en":
-                return self._pick("tyre_en", [
-                    f"Your {rep.current_tyre} tyres are {rep.tyre_age} laps old, peak wear is {rep.max_wear_pct:.0f} percent on the {rep.worst_wheel_en}, degrading at {rep.wear_per_lap:.1f} percent per lap. Around {rep.est_tyre_laps_left} good laps left.",
-                    f"Tyre check, {rep.max_wear_pct:.0f} percent wear on the {rep.worst_wheel_en}, core temperature is {rep.max_tyre_temp} degrees. They will hold for another {rep.est_tyre_laps_left} laps.",
-                    f"We are on {rep.tyre_age} lap old {rep.current_tyre}s at {rep.max_wear_pct:.0f} percent wear. {rep.setup_advice_en}",
-                ])
-            return self._pick("tyre_es", [
-                f"Llevas goma {rep.current_tyre_es} con {rep.tyre_age} vueltas, el mayor desgaste es del {rep.max_wear_pct:.0f} por ciento en la {rep.worst_wheel_es}. Te quedan unas {rep.est_tyre_laps_left} vueltas óptimas.",
-                f"Revisando las gomas, tienes un {rep.max_wear_pct:.0f} por ciento de desgaste en la {rep.worst_wheel_es} y {rep.max_tyre_temp} grados de temperatura interna. Aguantan bien otras {rep.est_tyre_laps_left} vueltas.",
-                f"Tus neumáticos {rep.current_tyre_es}s van por el {rep.max_wear_pct:.0f} por ciento de desgaste, degradando un {rep.wear_per_lap:.1f} por vuelta. {rep.setup_advice_es}",
-                f"El juego de {rep.current_tyre_es} tiene {rep.tyre_age} giros y está al {rep.max_wear_pct:.0f} por ciento en la {rep.worst_wheel_es}. Tenemos margen para unas {rep.est_tyre_laps_left} vueltas fuertes.",
-            ])
-
-        # ------------------------------------------------------------------
-        # 27. DAÑOS / ALERON / FONDO / MOTOR
+        # 26. DAÑOS / METEOROLOGIA / RESUMEN COMPLETO
         # ------------------------------------------------------------------
         if any(k in norm for k in ("dano", "daño", "danos", "daños", "aleron", "fondo", "motor", "caja", "toque", "roto", "damage", "wing", "floor", "engine")):
             return rep.damage_summary_en if lang == "en" else rep.damage_summary_es
 
-        # ------------------------------------------------------------------
-        # 28. METEOROLOGIA / LLUVIA / CLIMA / PISTA
-        # ------------------------------------------------------------------
         if any(k in norm for k in ("lluvia", "llover", "clima", "tiempo", "meteo", "asfalto", "pista", "circuito", "weather", "rain", "forecast")):
             if lang == "en":
-                return self._pick("wx_en", [
-                    f"At {rep.track_name}, track condition is {rep.weather_now}, tarmac at {rep.track_temp} degrees. Rain probability is {rep.rain_forecast_pct} percent.",
-                    f"Weather radar over {rep.track_name} shows {rep.weather_now} right now, air temp {rep.air_temp} degrees and {rep.rain_forecast_pct} percent chance of rain.",
-                ])
-            return self._pick("wx_es", [
-                f"Aquí en {rep.track_name} tenemos {rep.weather_now_es} con {rep.track_temp} grados en el asfalto. La probabilidad de lluvia es del {rep.rain_forecast_pct} por ciento.",
-                f"En el radar meteorológico vemos {rep.weather_now_es}, temperatura ambiente de {rep.air_temp} grados y un {rep.rain_forecast_pct} por ciento de opciones de agua.",
-                f"El asfalto de {rep.track_name} está a {rep.track_temp} grados con {rep.weather_now_es}. Probabilidad de lluvia en el {rep.rain_forecast_pct} por ciento.",
-            ])
+                return f"At {rep.track_name}, track condition is {rep.weather_now}, tarmac at {rep.track_temp} degrees. Rain probability is {rep.rain_forecast_pct} percent."
+            return f"Aquí en {rep.track_name} tenemos {rep.weather_now_es} con {rep.track_temp} grados en el asfalto. La probabilidad de lluvia es del {rep.rain_forecast_pct} por ciento."
 
-        # ------------------------------------------------------------------
-        # 29. RESUMEN COMPLETO / INFORME GENERAL
-        # ------------------------------------------------------------------
         return rep.full_briefing_en if lang == "en" else rep.full_briefing_es
 
     def check_proactive_spotter(self, state: RaceState) -> tuple[str, str] | None:
@@ -741,15 +966,11 @@ class EngineerBrain:
         if not self.cfg.proactive_callouts:
             return None
         lang = "en" if self.cfg.language == "en" else "es"
+        self.spotter.driver_name = self.cfg.driver_name
         msg = self.spotter.check(state, lang=lang)
         if msg:
             self._last_callout_ts = time.time()
-            self.dialogue_log.appendleft({
-                "time": time.strftime("%H:%M:%S"),
-                "driver": "[INGENIERO PROACTIVO]",
-                "engineer": msg,
-                "lang": lang.upper(),
-            })
+            self._log("[INGENIERO PROACTIVO]", msg, lang)
             return msg, lang
         return None
 
@@ -769,6 +990,7 @@ class EngineerBrain:
             ev_type = ev.extra % 10
             if sc_type == 1 and ev_type == 0:
                 if rep.max_wear_pct >= 30 and rep.laps_remaining >= 4:
+                    self.spotter.order_box_now(rep.current_lap)
                     msg = (
                         f"Safety Car deployed! Cheap pit stop available, if we box now we rejoin P{rep.predicted_rejoin_pos} on fresh {rep.recommended_compound}s!"
                         if lang == "en"
@@ -795,39 +1017,27 @@ class EngineerBrain:
         elif ev.code == "PENA" and ev.vehicle == state.player_idx:
             ptype = ev.extra // 1000
             secs = int(ev.value)
-            # En F1 las sanciones de tiempo reales son de 3, 5 o 10 segundos (evitar 2s de tiempo ganado o 255)
             if ptype == 4 and secs in (3, 5, 10, 15, 20):
                 msg = (
-                    f"Stewards have given us a {secs} second time penalty. Head down, build the gap."
+                    f"Stewards have given us a {secs} second time penalty. Head down and build a gap."
                     if lang == "en"
                     else f"Dirección de carrera nos aplica {secs} segundos de sanción. Cabeza fría y abre hueco."
                 )
             elif ptype == 0:
                 msg = (
-                    "Stewards have handed us a drive-through penalty. We have three laps to serve it."
+                    "We have been handed a drive-through penalty by the stewards."
                     if lang == "en"
-                    else "Dirección de carrera nos sanciona con un drive-through. Tenemos tres vueltas para cumplirlo."
+                    else "Los comisarios nos han puesto un drive-through de sanción."
                 )
             elif ptype in (10, 11, 12, 13, 14, 15):
                 msg = (
-                    "Stewards have deleted this lap time for track limits. Keep it between the white lines."
+                    "Track limits, that lap time has been deleted by Race Control."
                     if lang == "en"
-                    else "Dirección de carrera nos ha anulado el tiempo de vuelta por límites de pista. Mantente dentro de las líneas blancas."
+                    else "Límites de pista superados, dirección de carrera nos invalida el tiempo de vuelta."
                 )
-        elif ev.code == "FTLP" and ev.vehicle == state.player_idx:
-            msg = (
-                f"Purple lap, {ev.value:.3f}, fastest lap of the race! Great pace."
-                if lang == "en"
-                else f"¡Vuelta rápida de carrera con {ev.value:.3f}! Ritmazo {self.cfg.driver_name}, sigue así."
-            )
 
         if msg:
             self._last_callout_ts = now
-            self.dialogue_log.appendleft({
-                "time": time.strftime("%H:%M:%S"),
-                "driver": "[CONTROL DE CARRERA]",
-                "engineer": msg,
-                "lang": lang.upper(),
-            })
+            self._log("[CONTROL DE CARRERA]", msg, lang)
             return msg, lang
         return None

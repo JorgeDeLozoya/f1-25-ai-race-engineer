@@ -86,6 +86,12 @@ class StrategyReport:
     podium_gap_s: float
     points_gap_s: float
     retired_names: list[str] = field(default_factory=list)
+    plan_a_es: str = ""
+    plan_a_en: str = ""
+    plan_b_es: str = ""
+    plan_b_en: str = ""
+    plan_c_es: str = ""
+    plan_c_en: str = ""
     full_briefing_es: str = ""
     full_briefing_en: str = ""
 
@@ -100,6 +106,84 @@ def _parse_tyre_label(label: str) -> tuple[str, int]:
     m = re.search(r"\((\d+)L\)", label)
     age = int(m.group(1)) if m else 1
     return comp, max(1, age)
+
+
+def analyze_rival_pit_and_status(row: dict, rep: StrategyReport, lang: str = "es") -> dict[str, str]:
+    """Calcula cuando ha parado un piloto rival, cuando creemos que parara y su estado completo."""
+    rname = row.get("name", "Rival")
+    rteam = row.get("team", "su escudería")
+    rpos = int(row.get("pos", 1))
+    rgap_ldr = row.get("gap_leader", "+0.0s")
+    rlast = row.get("last_lap", "--")
+    rtyre_lbl = row.get("tyre", "Medium (5L)")
+    comp, age = _parse_tyre_label(rtyre_lbl)
+    comp_es = L.COMPOUNDS_ES.get(comp, comp.lower())
+    pits = int(row.get("pits", 0))
+
+    # Si en modo demo no viene 'pits', deducirlo por la edad de la goma frente a la vuelta actual
+    if pits == 0 and rep.current_lap > age + 1:
+        pits = 1
+
+    pit_lap = max(1, rep.current_lap - age)
+    stint_max_map = {
+        "Super Soft": 12,
+        "Soft": 15,
+        "Medium": 23,
+        "Hard": 33,
+        "Intermediate": 24,
+        "Wet": 28,
+    }
+    typical_life = stint_max_map.get(comp, 20)
+    laps_left_on_rival_tyre = max(1, typical_life - age)
+    pred_stop_start = max(rep.current_lap + 1, rep.current_lap + laps_left_on_rival_tyre - 1)
+    pred_stop_end = pred_stop_start + 2
+
+    if lang == "en":
+        if pits > 0:
+            pit_hist = (
+                f"{rname} has made {pits} pit stop{'s' if pits > 1 else ''} so far. "
+                f"He boxed on lap {pit_lap} to fit the {comp} tyre, which now has {age} laps on it."
+            )
+        else:
+            pit_hist = (
+                f"{rname} has not pitted yet, zero stops. He is still on his starting {comp} set with {age} laps of wear."
+            )
+
+        if rep.laps_remaining <= 3 or pred_stop_start >= rep.total_laps:
+            pit_pred = (
+                f"We don't expect {rname} to box again; with {rep.laps_remaining} laps remaining, his {age}-lap old {comp}s will make it to the chequered flag."
+            )
+        else:
+            pit_pred = (
+                f"Based on tyre degradation, we estimate {rname} will pit between lap {pred_stop_start} and {min(rep.total_laps - 1, pred_stop_end)}, "
+                f"in about {laps_left_on_rival_tyre} laps, since his {comp}s are already {age} laps old."
+            )
+
+        full = f"{rname} in the {rteam} is P{rpos} at {rgap_ldr} from the leader, last lap {rlast}. {pit_hist} {pit_pred}"
+        return {"history": pit_hist, "prediction": pit_pred, "full": full}
+
+    if pits > 0:
+        pit_hist = (
+            f"{rname} lleva {pits} {'parada' if pits == 1 else 'paradas'} en boxes. "
+            f"Hizo su parada en la vuelta {pit_lap} para montar el neumático {comp_es}, con el que ya lleva {age} vueltas."
+        )
+    else:
+        pit_hist = (
+            f"{rname} todavía no ha parado en boxes, lleva cero paradas y sigue con el juego de goma {comp_es} de salida de {age} vueltas."
+        )
+
+    if rep.laps_remaining <= 3 or pred_stop_start >= rep.total_laps:
+        pit_pred = (
+            f"En el muro no creemos que {rname} vuelva a parar; quedan {rep.laps_remaining} vueltas y su goma {comp_es} de {age} giros llega hasta la bandera a cuadros."
+        )
+    else:
+        pit_pred = (
+            f"Calculamos que {rname} parará en boxes entre la vuelta {pred_stop_start} y la {min(rep.total_laps - 1, pred_stop_end)}, "
+            f"dentro de unas {laps_left_on_rival_tyre} vueltas, porque su neumático {comp_es} ya acumula {age} giros."
+        )
+
+    full = f"{rname} va en la posición {rpos} con el {rteam} a {rgap_ldr} de cabeza, última vuelta {rlast}. {pit_hist} {pit_pred}"
+    return {"history": pit_hist, "prediction": pit_pred, "full": full}
 
 
 def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyReport:
@@ -179,6 +263,12 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             podium_gap_s=1.4,
             points_gap_s=0.0,
             retired_names=[],
+            plan_a_es="Plan A es quedarnos fuera hasta el final cuidando este medio al 33% y atacar a Norris con DRS en las últimas 3 vueltas.",
+            plan_a_en="Plan A is staying out to the flag managing these 33% Mediums and attacking Norris with DRS in the final 3 laps.",
+            plan_b_es="Plan B es ataque total ya mismo: mapa de adelantamiento en ERS y mezcla rica para pasar a Norris antes de que se escape, asumiendo mayor degradación.",
+            plan_b_en="Plan B is full attack right now: Overtake ERS and rich fuel mix to jump Norris immediately, accepting higher tyre wear.",
+            plan_c_es="Plan C es conservar gomas haciendo lift and coast esperando ese 45% de lluvia o un Safety Car tardío para montar blandos o intermedios gratis.",
+            plan_c_en="Plan C is saving tyres with lift and coast, waiting on that 45% rain chance or a late Safety Car for a cheap stop onto Softs or Inters.",
             full_briefing_es=(
                 "Vas cuarto en la vuelta 14 de 18, quedan 4 vueltas. Delante Norris a 1 con 4, "
                 "detrás Sainz a 2 con 1. Neumático medio al 33 por ciento, aguanta perfecto hasta el final."
@@ -533,6 +623,44 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         f"{undercut_en} {comp_name} tyres at {max_wear:.0f} percent wear and battery at {ers_pct} percent."
     )
 
+    # Planes tacticos A, B y C dinamicos segun estado real de carrera
+    if laps_rem <= 6 and max_wear < 62.0:
+        plan_a_es = (
+            f"Plan A es ir hasta el final sin parar con este {comp_es} al {max_wear:.0f}%, gestionando tracción para defender el P{pos}."
+        )
+        plan_a_en = (
+            f"Plan A is going to the end without stopping on these {max_wear:.0f}% {comp_name}s, managing traction to hold P{pos}."
+        )
+        plan_b_es = (
+            f"Plan B es ataque total al sprint: vaciar el {ers_pct}% de batería con modo Overtake para cazar a {ahead_row['name'] if ahead_row else 'la cabeza'} en las {laps_rem} vueltas que quedan."
+        )
+        plan_b_en = (
+            f"Plan B is full sprint attack: deploy your {ers_pct}% battery in Overtake mode to hunt down {ahead_row['name'] if ahead_row else 'the leader'} over the final {laps_rem} laps."
+        )
+    else:
+        plan_a_es = (
+            f"Plan A es nuestra estrategia óptima: parar entre la vuelta {ideal_lap} y la {latest_lap} para montar {rec_comp_es} y salir en torno a P{rejoin_pos}."
+        )
+        plan_a_en = (
+            f"Plan A is our baseline strategy: box between lap {ideal_lap} and {latest_lap} for {rec_comp} tyres, rejoining around P{rejoin_pos}."
+        )
+        undercut_lap = max(cur_lap, ideal_lap - 2)
+        plan_b_es = (
+            f"Plan B es el undercut agresivo: adelantar la parada a la vuelta {undercut_lap} para montar goma blanda o {rec_comp_es} y atacar con aire limpio a {ahead_row['name'] if ahead_row else 'los de delante'}."
+        )
+        plan_b_en = (
+            f"Plan B is the aggressive undercut: box early on lap {undercut_lap} for fresh rubber and use clean air to jump {ahead_row['name'] if ahead_row else 'the cars ahead'}."
+        )
+
+    plan_c_es = (
+        f"Plan C es alargar el stint al máximo cuidando las gomas ({est_tyre_laps_left} vueltas de vida), buscando un overcut o esperando un Safety Car"
+        + (f" o ese {rain_pct}% de lluvia prevista." if rain_pct >= 20 else " para tener parada gratis.")
+    )
+    plan_c_en = (
+        f"Plan C is extending this stint to the limit ({est_tyre_laps_left} laps of tyre life), going for an overcut or waiting on a Safety Car"
+        + (f" or that {rain_pct}% rain chance." if rain_pct >= 20 else " for a cheap pit stop.")
+    )
+
     return StrategyReport(
         connected=True,
         track_name=track_name,
@@ -607,6 +735,12 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         podium_gap_s=podium_gap_s,
         points_gap_s=points_gap_s,
         retired_names=retired_names,
+        plan_a_es=plan_a_es,
+        plan_a_en=plan_a_en,
+        plan_b_es=plan_b_es,
+        plan_b_en=plan_b_en,
+        plan_c_es=plan_c_es,
+        plan_c_en=plan_c_en,
         full_briefing_es=brief_es,
         full_briefing_en=brief_en,
     )
@@ -632,6 +766,10 @@ class ProactiveSpotter:
         self.last_drs_behind_ts: float = 0.0
         self.warned_track_limits: int = 0
         self.last_callout_time: float = 0.0
+        self.box_ordered: bool = False
+        self.box_ordered_lap: int = 0
+        self.ignored_box_laps: int = 0
+        self.last_pits: int = 0
 
     def reset(self, session_uid: int) -> None:
         self.last_session_uid = session_uid
@@ -648,6 +786,15 @@ class ProactiveSpotter:
         self.last_drs_ahead_ts = 0.0
         self.last_drs_behind_ts = 0.0
         self.warned_track_limits = 0
+        self.box_ordered = False
+        self.box_ordered_lap = 0
+        self.ignored_box_laps = 0
+        self.last_pits = 0
+
+    def order_box_now(self, current_lap: int) -> None:
+        """Registra que el muro ha ordenado parar en boxes en esta vuelta para vigilar si el piloto hace caso."""
+        self.box_ordered = True
+        self.box_ordered_lap = max(1, current_lap)
 
     def check(self, state: RaceState, lang: str = "es") -> str | None:
         """Devuelve un mensaje proactivo variado si ha ocurrido algo relevante en pista."""
@@ -682,6 +829,19 @@ class ProactiveSpotter:
         pidx = state.player_idx
         pl_lap = state.laps[pidx] if 0 <= pidx < len(state.laps) else None
 
+        # Si el piloto entra al pit lane cuando tenia orden de parar
+        if pl_lap and (pl_lap.pit_status in (1, 2) or pl_lap.num_pit_stops > self.last_pits):
+            was_ignored = self.ignored_box_laps
+            self.last_pits = pl_lap.num_pit_stops
+            if self.box_ordered:
+                self.box_ordered = False
+                self.ignored_box_laps = 0
+                if was_ignored >= 1:
+                    self.last_callout_time = now
+                    if lang == "en":
+                        return f"Finally in the pit lane {self.driver_name}! Pit limiter on, the crew is ready for you."
+                    return f"¡Aleluya {self.driver_name}, por fin entras a boxes! Ya nos tenías cardíacos en el muro, clava las marcas de los mecánicos."
+
         # 0. Adelantamiento ganado o posicion perdida en pista (a partir de vuelta 2)
         if self.last_pos > 0 and rep.position != self.last_pos and rep.current_lap >= 2:
             old_pos = self.last_pos
@@ -713,9 +873,26 @@ class ProactiveSpotter:
         else:
             self.last_pos = rep.position
 
-        # 1. Cambio de vuelta: Ultima vuelta, Quedan 3 vueltas, Ventana de boxes abierta
+        # 1. Cambio de vuelta: Comprobar si ha ignorado la orden de BOX, Ultima vuelta, Quedan 3 vueltas, Ventana abierta
         if rep.current_lap != self.last_lap and rep.current_lap > 1:
             self.last_lap = rep.current_lap
+
+            # ¿Tenia orden de entrar a boxes y se ha saltado la entrada al pit lane?
+            if self.box_ordered and rep.current_lap > self.box_ordered_lap and rep.laps_remaining >= 1:
+                if not pl_lap or pl_lap.pit_status == 0:
+                    self.ignored_box_laps += 1
+                    self.last_callout_time = now
+                    if self.ignored_box_laps == 1:
+                        if lang == "en":
+                            return f"Hey {self.driver_name}, you just drove right past the pit entry! The crew was standing by with the tyres. You need to box THIS lap, copy!"
+                        return f"¡Oye {self.driver_name}, te acabas de saltar la entrada a boxes! Teníamos a los mecánicos fuera con las pistolas listas. ¡Entra en ESTA vuelta sin excusas, box box!"
+                    if self.ignored_box_laps == 2:
+                        if lang == "en":
+                            return f"That is TWO laps in a row you have ignored the pit call {self.driver_name}! What are you doing out there? Tyres are at {rep.max_wear_pct:.0f} percent, BOX THIS LAP!"
+                        return f"¡Segunda vuelta seguida que pasas olímpicamente de mi orden de parar, {self.driver_name}! ¿Se puede saber a qué juegas? Llevas las gomas al {rep.max_wear_pct:.0f} por ciento, ¡entra a boxes YA!"
+                    if lang == "en":
+                        return f"Unbelievable {self.driver_name}, three laps ignoring the pit wall! If that {rep.worst_wheel_en} tyre blows up on the straight it is on you! Get in the pit lane NOW!"
+                    return f"¡Increíble {self.driver_name}, tres vueltas ignorando al muro de boxes! Los mecánicos están que trinan contigo; como revientes la rueda {rep.worst_wheel_es} en la recta será responsabilidad tuya. ¡A boxes de una vez!"
 
             if rep.total_laps >= 2 and rep.current_lap == rep.total_laps:
                 self.last_callout_time = now
@@ -752,6 +929,7 @@ class ProactiveSpotter:
                 self.warned_wing_dmg = wing
                 self.last_callout_time = now
                 if wing >= 30:
+                    self.order_box_now(rep.current_lap)
                     return (
                         f"Heavy front wing damage at {wing} percent! Box this lap for a new nose, copy."
                         if lang == "en"
@@ -767,6 +945,7 @@ class ProactiveSpotter:
         if not self.warned_wear_70 and rep.max_wear_pct >= 70.0:
             self.warned_wear_70 = True
             self.last_callout_time = now
+            self.order_box_now(rep.current_lap)
             if lang == "en":
                 return f"Careful {self.driver_name}, tyre wear is critical at {rep.max_wear_pct:.0f} percent on the {rep.worst_wheel_en}, puncture risk! Box this lap!"
             return f"¡Mucho cuidado {self.driver_name}, desgaste crítico del {rep.max_wear_pct:.0f} por ciento en la {rep.worst_wheel_es}, riesgo de pinchazo! ¡Box en esta vuelta!"
