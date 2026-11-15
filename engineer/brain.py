@@ -355,7 +355,12 @@ class EngineerBrain:
                .replace("ó", "o").replace("ú", "u").replace("ü", "u")
         )
         words = set(re.findall(r"[a-z0-9]+", norm))
-        drv = self.cfg.driver_name
+        # Identificar el nombre de pila del piloto del juego para llamarlo de forma realista (Max, Fernando, Carlos...)
+        if rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #"):
+            parts = rep.player_driver.split()
+            drv = parts[0]
+        else:
+            drv = self.cfg.driver_name
 
         standings = build_standings(state, limit=24)
         if not standings:
@@ -1157,6 +1162,24 @@ class EngineerBrain:
         # 23. ESTRATEGIA / ¿DEBERIA PARAR EN BOXES? / PROXIMA PARADA
         # ------------------------------------------------------------------
         if any(k in norm for k in ("estrategia", "parar", "paro", "parada", "proxima parada", "boxes", "box", "pit", "ventana", "undercut", "overcut", "deberia", "entro", "entrar", "strategy", "window", "should", "stop", "lobbies")):
+            if rep.total_laps <= 7:
+                if lang == "en":
+                    return (
+                        f"This is a {rep.total_laps}-lap sprint race {drv}, there are NO pit stops scheduled! "
+                        f"Your {rep.current_tyre}s are at {rep.max_wear_pct:.0f}% wear and easily go to the end. "
+                        f"It's flat out to the flag, manage your ERS down the straights to attack {rep.ahead_name}."
+                    )
+                return (
+                    f"Esta es una carrera corta a {rep.total_laps} vueltas {drv}, ¡aquí NO hay parada en boxes programada! "
+                    f"Tus neumáticos {rep.current_tyre_es}s van al {rep.max_wear_pct:.0f}% de desgaste y aguantan de sobra hasta el final. "
+                    f"Es ir a fondo hasta la bandera a cuadros; administra el ERS en las rectas para cazar a {rep.ahead_name}."
+                )
+
+            if rep.laps_remaining <= 2 and rep.total_laps >= 8:
+                if lang == "en":
+                    return f"Negative on boxing {drv}, only {rep.laps_remaining} laps remaining! Pitting now would throw away all our track position, stay out and bring it home!"
+                return f"¡Negativo, no paramos {drv}! Quedan solo {rep.laps_remaining} vueltas para meta; entrar ahora sería regalar todas las posiciones. Quédate fuera y cruza la meta."
+
             if "BOX" in rep.box_recommendation or rep.box_recommendation == "PIT WINDOW OPEN":
                 self.spotter.order_box_now(rep.current_lap)
             if lang == "en":
@@ -1235,7 +1258,11 @@ class EngineerBrain:
         if not self.cfg.proactive_callouts:
             return None
         lang = "en" if self.cfg.language == "en" else "es"
-        self.spotter.driver_name = self.cfg.driver_name
+        rep = analyze_strategy(state, self.cfg.driver_name)
+        if rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #"):
+            self.spotter.driver_name = rep.player_driver.split()[0]
+        else:
+            self.spotter.driver_name = self.cfg.driver_name
         msg = self.spotter.check(state, lang=lang)
         if msg:
             self._last_callout_ts = time.time()
@@ -1253,6 +1280,7 @@ class EngineerBrain:
 
         lang = "en" if self.cfg.language == "en" else "es"
         rep = analyze_strategy(state, self.cfg.driver_name)
+        drv = rep.player_driver.split()[0] if (rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #")) else self.cfg.driver_name
         msg = None
         if ev.code == "SCAR":
             sc_type = ev.extra // 10
