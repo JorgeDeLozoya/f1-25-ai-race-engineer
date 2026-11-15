@@ -12,6 +12,7 @@ INCLUDE_FILES = [
     "swofty_helper.py",
     "config.json",
     "run_engineer.bat",
+    "stop_engineer.bat",
     "simulate_udp.py",
     "README.md",
     "bin/engineer-helper.exe",

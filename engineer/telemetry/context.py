@@ -116,12 +116,18 @@ def build_standings(state: RaceState, limit: int = 24) -> list[dict]:
         s1 = (sh.last_s1_ms if (sh and sh.last_s1_ms > 0) else ld.s1_ms)
         s2 = (sh.last_s2_ms if (sh and sh.last_s2_ms > 0) else ld.s2_ms)
         s3 = (sh.last_s3_ms if (sh and sh.last_s3_ms > 0) else max(0, ld.last_lap_ms - s1 - s2) if (ld.last_lap_ms > 0 and s1 > 0 and s2 > 0) else 0)
+        rnum = 0
+        if 0 <= idx < len(state.participants):
+            rnum = state.participants[idx].race_number
+        if rnum <= 0:
+            rnum = L.DRIVER_NUMBERS.get(dname.upper(), 0)
         row = {
             "idx": idx,
             "pos": ld.position,
             "grid_pos": max(1, ld.grid_position) if ld.grid_position > 0 else ld.position,
             "name": dname,
             "team": tname,
+            "race_number": rnum,
             "lap": max(1, ld.lap),
             "last_lap_ms": ld.last_lap_ms,
             "last_lap": fmt_ms(ld.last_lap_ms),
@@ -219,12 +225,18 @@ def build_standings(state: RaceState, limit: int = 24) -> list[dict]:
                 synth_s1 = sh.last_s1_ms if (sh and sh.last_s1_ms > 0) else ref_car.get("s1_ms", 0)
                 synth_s2 = sh.last_s2_ms if (sh and sh.last_s2_ms > 0) else ref_car.get("s2_ms", 0)
                 synth_s3 = sh.last_s3_ms if (sh and sh.last_s3_ms > 0) else ref_car.get("s3_ms", 0)
+                synth_rnum = 0
+                if 0 <= slot_idx < len(state.participants):
+                    synth_rnum = state.participants[slot_idx].race_number
+                if synth_rnum <= 0:
+                    synth_rnum = L.DRIVER_NUMBERS.get(dname.upper(), 0)
                 synth_row = {
                     "idx": slot_idx,
                     "pos": m_pos,
                     "grid_pos": m_pos,
                     "name": dname,
                     "team": tname,
+                    "race_number": synth_rnum,
                     "lap": lap_num,
                     "last_lap_ms": last_ms,
                     "last_lap": fmt_ms(last_ms),

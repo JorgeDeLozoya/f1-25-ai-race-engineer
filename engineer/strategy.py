@@ -111,6 +111,7 @@ class StrategyReport:
         "Track is still fastest on dry slicks; the whole grid is on slicks and we haven't hit the Intermediate crossover point yet, though rain chance is 45% in 15 minutes."
     )
     grid_position: int = 6
+    player_race_number: int = 14
     positions_gained: int = 2
     debrief_es: str = (
         "¡Bandera a cuadros, carrera terminada! Has cruzado meta en posición 4 tras salir P6 en parrilla, ganando 2 posiciones con una vuelta rápida personal de 1:46.210. ¡Carrerón impecable desde el muro!"
@@ -470,6 +471,7 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
             session_name="Race",
             player_driver=driver_label,
             player_team="Aston Martin",
+            player_race_number=14,
             current_lap=14,
             total_laps=18,
             laps_remaining=4,
@@ -586,6 +588,13 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
     cur_lap = me_row["lap"] if me_row else 1
     player_driver = me_row["name"] if me_row else driver_label
     player_team = me_row["team"] if me_row else "Tu Escudería"
+    player_race_number = int(me_row.get("race_number", 0)) if me_row else 0
+    if player_race_number <= 0 and 0 <= state.player_idx < len(state.participants):
+        player_race_number = state.participants[state.player_idx].race_number
+    if player_race_number <= 0:
+        player_race_number = L.DRIVER_NUMBERS.get((player_driver or "").upper(), 0)
+    if player_race_number <= 0:
+        player_race_number = 14
     last_lap_str = me_row["last_lap"] if me_row else "--"
     best_lap_str = me_row["best_lap"] if me_row else "--"
     my_last_ms = me_row.get("last_lap_ms", 0) if me_row else 0
@@ -1066,6 +1075,7 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         session_name=session_name,
         player_driver=player_driver,
         player_team=player_team,
+        player_race_number=player_race_number,
         current_lap=cur_lap,
         total_laps=total_laps,
         laps_remaining=laps_rem,

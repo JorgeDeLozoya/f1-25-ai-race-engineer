@@ -783,20 +783,32 @@ class PitWallWindow:
 
         self.lbl_hud_id, self.cmb_hud_id = self._add_combo_row(
             c3,
-            "Identidad y Escudería en el HUD:",
+            "Modo de Identidad del HUD:",
             [
-                "Automático según el Coche en Telemetría",
-                "Usar Siempre Mi Nombre, Equipo y Dorsal",
+                "🏎️ Automático (Detecta Equipo, Color y Dorsal del Juego)",
+                "✏️ Modo Manual (Personalizado por Mí en Ajustes)",
             ],
         )
 
+        self.lbl_hud_auto_hint = tk.Label(
+            c3,
+            text="",
+            bg=self.CARD,
+            fg=self.GREEN,
+            font=("Segoe UI", 8, "italic"),
+            wraplength=480,
+            justify=tk.LEFT,
+        )
+        self.lbl_hud_auto_hint.pack(fill=tk.X, padx=14, pady=(2, 4))
+
         self.lbl_hud_team, self.cmb_hud_team = self._add_combo_row(
-            c3, "Escudería / Color del HUD F1 TV:", TEAM_OPTIONS
+            c3, "Escudería Manual (Color HUD):", TEAM_OPTIONS
         )
 
         self.lbl_hud_num, self.ent_hud_num = self._add_entry_row(
-            c3, "Dorsal Personalizado (1 - 99):", str(self.cfg.hud_custom_number)
+            c3, "Dorsal Manual (1 - 99):", str(self.cfg.hud_custom_number)
         )
+        self.cmb_hud_id.bind("<<ComboboxSelected>>", self._on_hud_id_mode_change)
 
         self.lbl_hud_hold, self.scale_hud_hold = self._add_slider_row(
             c3, "Segundos Visible tras Hablar:", 2, 15
@@ -1151,6 +1163,7 @@ class PitWallWindow:
         self.ent_hud_num.insert(0, str(self.cfg.hud_custom_number))
         self.scale_hud_hold.set(int(round(self.cfg.hud_hold_seconds)))
         self.scale_hud_alpha.set(int(round(self.cfg.hud_opacity * 100)))
+        self._on_hud_id_mode_change()
         # 8. UDP & Gemini
         self.ent_udp_port.delete(0, tk.END)
         self.ent_udp_port.insert(0, str(self.cfg.udp_port))
@@ -1247,6 +1260,31 @@ class PitWallWindow:
         self.cfg.language = "en" if self.cmb_lang.current() == 1 else "es"
         self.cfg.save()
         self._apply_ui_language()
+
+    def _on_hud_id_mode_change(self, event=None) -> None:
+        is_manual = (self.cmb_hud_id.current() == 1)
+        if is_manual:
+            self.cmb_hud_team.configure(state="readonly")
+            self.ent_hud_num.configure(state="normal")
+            self.lbl_hud_team.configure(fg=self.TEXT)
+            self.lbl_hud_num.configure(fg=self.TEXT)
+            hint = (
+                "✏️ Manual Mode active: Selected team color theme & dorsal number will always be used."
+                if self._is_en()
+                else "✏️ Modo Manual activo: Se usará siempre la escudería, color y dorsal que elijas aquí debajo."
+            )
+            self.lbl_hud_auto_hint.configure(text=hint, fg=self.CYAN)
+        else:
+            self.cmb_hud_team.configure(state="disabled")
+            self.ent_hud_num.configure(state="disabled")
+            self.lbl_hud_team.configure(fg=self.MUTED)
+            self.lbl_hud_num.configure(fg=self.MUTED)
+            hint = (
+                "🏎️ Auto Mode active: Team colors, badge and car number are detected live from your car in F1 25 / F1 26."
+                if self._is_en()
+                else "🏎️ Modo Automático activo: El color, escudo y dorsal se leen automáticamente del monoplaza que conduzcas en el juego."
+            )
+            self.lbl_hud_auto_hint.configure(text=hint, fg=self.GREEN)
 
     def _refresh_mic_list(self) -> None:
         self._mic_devices = list_input_devices()
@@ -1525,23 +1563,24 @@ class PitWallWindow:
         )
         hmodes = ["auto", "always", "off"]
         self.cmb_hud_mode.current(hmodes.index(self.cfg.hud_mode) if self.cfg.hud_mode in hmodes else 0)
-        self.lbl_hud_id.configure(text="HUD Header Identity:" if en else "Identidad y Escudería en el HUD:")
+        self.lbl_hud_id.configure(text="HUD Identity Mode:" if en else "Modo de Identidad del HUD:")
         self.cmb_hud_id.configure(
             values=(
                 [
-                    "Auto from Car Telemetry (LECLERC, SENNA...)",
-                    "Always Use My Custom Name, Team & Number",
+                    "🏎️ Automatic (Detects Team, Color & Dorsal from Game)",
+                    "✏️ Manual Mode (Customized by Me in Settings)",
                 ]
                 if en
                 else [
-                    "Automático según el Coche en Telemetría",
-                    "Usar Siempre Mi Nombre, Equipo y Dorsal",
+                    "🏎️ Automático (Detecta Equipo, Color y Dorsal del Juego)",
+                    "✏️ Modo Manual (Personalizado por Mí en Ajustes)",
                 ]
             )
         )
         self.cmb_hud_id.current(1 if self.cfg.hud_identity_mode == "custom" else 0)
-        self.lbl_hud_team.configure(text="F1 TV Team Color Theme:" if en else "Escudería / Color del HUD F1 TV:")
-        self.lbl_hud_num.configure(text="Custom Car Number (1-99):" if en else "Dorsal Personalizado (1 - 99):")
+        self.lbl_hud_team.configure(text="Manual Team Color Theme:" if en else "Escudería Manual (Color HUD):")
+        self.lbl_hud_num.configure(text="Manual Car Number (1-99):" if en else "Dorsal Manual (1 - 99):")
+        self._on_hud_id_mode_change()
         self.lbl_hud_hold.configure(text="Hold Duration on Screen (s):" if en else "Segundos Visible tras Hablar:")
         self.lbl_hud_alpha.configure(text="HUD Opacity (%):" if en else "Opacidad del HUD en Pantalla (%):")
         self.btn_preview_hud.configure(
