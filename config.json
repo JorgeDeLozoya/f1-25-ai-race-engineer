@@ -1,0 +1,20 @@
+{
+  "gemini_api_key": "",
+  "gemini_model": "gemini-2.5-flash",
+  "language": "es",
+  "engineer_name": "Marc",
+  "driver_name": "Jorge",
+  "voice_mode": "wake_word",
+  "wake_words": "ingeniero, marc, engineer, bono, box",
+  "ptt_key": "f9",
+  "udp_host": "0.0.0.0",
+  "udp_port": 20777,
+  "udp_forward": [],
+  "voice_es": "es-ES-AlvaroNeural",
+  "voice_en": "en-GB-RyanNeural",
+  "voice_rate": "+25%",
+  "radio_effect": 0.85,
+  "volume": 1.0,
+  "proactive_callouts": true,
+  "mic_device": null
+}
