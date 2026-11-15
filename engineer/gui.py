@@ -533,6 +533,18 @@ class PitWallWindow:
             c1, "Nombre de tu Ingeniero de Pista:", self.cfg.engineer_name
         )
 
+        self.lbl_persona, self.cmb_persona = self._add_combo_row(
+            c1,
+            "Personalidad del Ingeniero (Estilo):",
+            [
+                "⚖️ Marc · Estándar F1 (Equilibrado)",
+                "🐂 GP Lambiase · Red Bull (Directo / Sarcástico)",
+                "⭐ Bono · Mercedes (Motivador / Hammer Time)",
+                "🐎 Maranello · Ferrari (We are checking / Plan E)",
+                "🔥 Sargento de Pista (Cañero Sin Filtro)",
+            ],
+        )
+
         self.lbl_voice_es, self.cmb_voice_es = self._add_combo_row(
             c1, "Voz Neural en Español (Edge TTS):", [lbl for _, lbl in SPANISH_VOICES]
         )
@@ -1017,6 +1029,8 @@ class PitWallWindow:
         self.ent_drv_name.insert(0, self.cfg.driver_name)
         self.ent_eng_name.delete(0, tk.END)
         self.ent_eng_name.insert(0, self.cfg.engineer_name)
+        personas = ["balanced", "gp", "bono", "ferrari", "canero"]
+        self.cmb_persona.current(personas.index(self.cfg.engineer_persona) if self.cfg.engineer_persona in personas else 0)
         # 3. Voces
         es_keys = [k for k, _ in SPANISH_VOICES]
         self.cmb_voice_es.current(es_keys.index(self.cfg.voice_es) if self.cfg.voice_es in es_keys else 0)
@@ -1067,6 +1081,8 @@ class PitWallWindow:
         self.cfg.language = "en" if self.cmb_lang.current() == 1 else "es"
         self.cfg.driver_name = self.ent_drv_name.get().strip() or "Driver"
         self.cfg.engineer_name = self.ent_eng_name.get().strip() or "Marc"
+        personas = ["balanced", "gp", "bono", "ferrari", "canero"]
+        self.cfg.engineer_persona = personas[max(0, self.cmb_persona.current())]
         self.cfg.voice_es = SPANISH_VOICES[max(0, self.cmb_voice_es.current())][0]
         self.cfg.voice_en = ENGLISH_VOICES[max(0, self.cmb_voice_en.current())][0]
         r_val = int(self.scale_rate.get())
@@ -1247,21 +1263,21 @@ class PitWallWindow:
             [
                 ("📋 Plans A/B/C", "What are Plan A, Plan B and Plan C?"),
                 ("⏱️ Rival Pit Stop?", "When did Norris pit and when do you think he will pit?"),
+                ("📊 Sectors S1/S2/S3", "Where am I losing time in the sectors?"),
                 ("🤝 Team Orders?", "If I let my teammate pass what benefits do we have?"),
+                ("🎮 MFD: Request Box", "Request pit stop on the MFD and prepare tyres"),
+                ("🌧️ Wet Crossover?", "Is it time for Intermediates or dry slicks?"),
                 ("💢 Argue Strategy", "I don't want to box, your strategy call is wrong"),
-                ("🛞 Tyre Wear", "How are my tyres and how many laps left on them?"),
-                ("🔧 Understeer / Setup", "The car won't turn in, I have massive understeer"),
-                ("🤬 Shut Up / Stop Yelling", "Stop yelling at me and let me drive"),
             ]
             if en
             else [
                 ("📋 Planes A/B/C", "¿Cuáles son el Plan A, Plan B y Plan C?"),
                 ("⏱️ ¿Parada Rival?", "¿Cuándo ha hecho la parada Norris y cuándo crees que parará?"),
+                ("📊 Sectores S1/S2/S3", "¿Dónde estoy perdiendo tiempo en los sectores?"),
                 ("🤝 Órdenes Equipo", "Si dejo adelantar a mi compañero qué beneficios tenemos"),
+                ("🎮 MFD: Solicita Box", "Solicita box en el MFD y prepara los neumáticos"),
+                ("🌧️ ¿Crossover Lluvia?", "¿Es momento de intermedios o pista para secos?"),
                 ("💢 Discutir / No Paro", "No quiero parar en boxes, estás equivocado con la estrategia"),
-                ("🛞 Neumáticos", "¿Cómo están los neumáticos y cuántas vueltas me quedan?"),
-                ("🔧 Subviraje / Setup", "El coche no gira en curva, tengo mucho subviraje"),
-                ("🤬 Deja de Gritar", "Deja de gritar y déjame conducir en paz"),
             ]
         )
         for btn, (lbl, q) in zip(self._quick_buttons, quick_queries):
@@ -1276,6 +1292,28 @@ class PitWallWindow:
         self.lbl_lang.configure(text="Language (Voice & UI):" if en else "Idioma del Ingeniero y la Interfaz:")
         self.lbl_drv_name.configure(text="Your Driver Name:" if en else "Tu Nombre de Piloto (Cómo te llama):")
         self.lbl_eng_name.configure(text="Race Engineer Name:" if en else "Nombre de tu Ingeniero de Pista:")
+        self.lbl_persona.configure(text="Engineer Personality Style:" if en else "Personalidad del Ingeniero (Estilo):")
+        personas = ["balanced", "gp", "bono", "ferrari", "canero"]
+        self.cmb_persona.configure(
+            values=(
+                [
+                    "⚖️ Marc · Standard F1 (Balanced)",
+                    "🐂 GP Lambiase · Red Bull (Direct / Sarcastic)",
+                    "⭐ Bono · Mercedes (Supportive / Hammer Time)",
+                    "🐎 Maranello · Ferrari (We are checking / Plan E)",
+                    "🔥 Track Sergeant (Hardcore No-Filter)",
+                ]
+                if en
+                else [
+                    "⚖️ Marc · Estándar F1 (Equilibrado)",
+                    "🐂 GP Lambiase · Red Bull (Directo / Sarcástico)",
+                    "⭐ Bono · Mercedes (Motivador / Hammer Time)",
+                    "🐎 Maranello · Ferrari (We are checking / Plan E)",
+                    "🔥 Sargento de Pista (Cañero Sin Filtro)",
+                ]
+            )
+        )
+        self.cmb_persona.current(personas.index(self.cfg.engineer_persona) if self.cfg.engineer_persona in personas else 0)
         self.lbl_voice_es.configure(text="Spanish Neural Voice:" if en else "Voz Neural en Español (Edge TTS):")
         self.lbl_voice_en.configure(text="English Neural Voice:" if en else "Voz Neural en Inglés (Edge TTS):")
         self.lbl_rate.configure(text="Speech Speed Rate (%):" if en else "Velocidad de Habla (%):")
@@ -1588,10 +1626,11 @@ class PitWallWindow:
                 f"CIRCUIT    : {rep.track_name} ({rep.session_name})",
                 f"LAP        : {rep.current_lap} / {rep.total_laps}  ({rep.laps_remaining} laps left)",
                 f"POSITION   : P{rep.position} / {rep.total_cars}  (Last: {rep.last_lap_str})",
+                f"SPLITS     : S1 {rep.s1_str} | S2 {rep.s2_str} | S3 {rep.s3_str}",
                 f"CAR AHEAD  : {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) [{rep.ahead_tyre}]",
                 f"CAR BEHIND : {rep.behind_name} (-{rep.behind_gap_s:.1f}s) [{rep.behind_tyre}]",
                 "─" * 42,
-                f"PIT WALL PLAN  : PLAN {active_plan} (Ask: Plan A / Plan B / Plan C)",
+                f"PIT WALL PLAN  : PLAN {active_plan} · Style: {self.cfg.engineer_persona.upper()}",
                 f"PIT WINDOW     : Lap {rep.pit_window_ideal} to {rep.pit_window_latest} -> P{rep.predicted_rejoin_pos} ({rep.recommended_compound})",
                 "─" * 42,
                 f"TYRE COMPOUND  : {rep.current_tyre} ({rep.tyre_age} laps)",
@@ -1609,10 +1648,11 @@ class PitWallWindow:
                 f"CIRCUITO : {rep.track_name} ({rep.session_name})",
                 f"VUELTA   : {rep.current_lap} / {rep.total_laps}  (Quedan {rep.laps_remaining} vueltas)",
                 f"POSICIÓN : P{rep.position} / {rep.total_cars}  (Última: {rep.last_lap_str})",
+                f"PARCIALES: S1 {rep.s1_str} | S2 {rep.s2_str} | S3 {rep.s3_str}",
                 f"DELANTE  : {rep.ahead_name} (+{rep.ahead_gap_s:.1f}s) [{rep.ahead_tyre}]",
                 f"DETRÁS   : {rep.behind_name} (-{rep.behind_gap_s:.1f}s) [{rep.behind_tyre}]",
                 "─" * 42,
-                f"PLAN EN MURO   : PLAN {active_plan} (Pregunta: Plan A / Plan B / Plan C)",
+                f"PLAN EN MURO   : PLAN {active_plan} · Estilo: {self.cfg.engineer_persona.upper()}",
                 f"VENTANA BOXES  : V{rep.pit_window_ideal}-V{rep.pit_window_latest} -> Salida P{rep.predicted_rejoin_pos} ({rep.recommended_compound})",
                 "─" * 42,
                 f"NEUMÁTICO      : {rep.current_tyre} ({rep.tyre_age} vueltas)",

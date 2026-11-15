@@ -365,6 +365,9 @@ class CarSessionHistory:
     actual_compound: int
     visual_compound: int
     tyre_age: int
+    last_s1_ms: int = 0
+    last_s2_ms: int = 0
+    last_s3_ms: int = 0
 
 
 def parse_session_history(data: bytes) -> CarSessionHistory | None:
@@ -377,6 +380,9 @@ def parse_session_history(data: bytes) -> CarSessionHistory | None:
     best_lap_ms = 0
     cur_s1_ms = 0
     cur_s2_ms = 0
+    last_s1_ms = 0
+    last_s2_ms = 0
+    last_s3_ms = 0
     cum_ms = 0
     valid_laps = min(num_laps, 100)
     for lap_i in range(valid_laps):
@@ -384,8 +390,17 @@ def parse_session_history(data: bytes) -> CarSessionHistory | None:
         lap_ms = lv[0]
         s1_ms = lv[2] * 60000 + lv[1]
         s2_ms = lv[4] * 60000 + lv[3]
+        s3_ms = lv[6] * 60000 + lv[5]
         if lap_ms > 0:
             last_lap_ms = lap_ms
+            if s1_ms > 0:
+                last_s1_ms = s1_ms
+            if s2_ms > 0:
+                last_s2_ms = s2_ms
+            if s3_ms > 0:
+                last_s3_ms = s3_ms
+            elif s1_ms > 0 and s2_ms > 0 and lap_ms > (s1_ms + s2_ms):
+                last_s3_ms = lap_ms - s1_ms - s2_ms
             cum_ms += lap_ms
             if best_lap_ms == 0 or lap_ms < best_lap_ms:
                 best_lap_ms = lap_ms
@@ -420,6 +435,9 @@ def parse_session_history(data: bytes) -> CarSessionHistory | None:
         actual_compound=act_comp,
         visual_compound=vis_comp,
         tyre_age=tyre_age,
+        last_s1_ms=last_s1_ms,
+        last_s2_ms=last_s2_ms,
+        last_s3_ms=last_s3_ms,
     )
 
 

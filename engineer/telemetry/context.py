@@ -112,15 +112,23 @@ def build_standings(state: RaceState, limit: int = 24) -> list[dict]:
             continue
         dname = driver_name(state, idx)
         tname = team_name(state, idx, dname)
+        sh = state.session_history.get(idx)
+        s1 = (sh.last_s1_ms if (sh and sh.last_s1_ms > 0) else ld.s1_ms)
+        s2 = (sh.last_s2_ms if (sh and sh.last_s2_ms > 0) else ld.s2_ms)
+        s3 = (sh.last_s3_ms if (sh and sh.last_s3_ms > 0) else max(0, ld.last_lap_ms - s1 - s2) if (ld.last_lap_ms > 0 and s1 > 0 and s2 > 0) else 0)
         row = {
             "idx": idx,
             "pos": ld.position,
+            "grid_pos": max(1, ld.grid_position) if ld.grid_position > 0 else ld.position,
             "name": dname,
             "team": tname,
             "lap": max(1, ld.lap),
             "last_lap_ms": ld.last_lap_ms,
             "last_lap": fmt_ms(ld.last_lap_ms),
             "best_lap": fmt_ms(state.best_laps.get(idx, 0)),
+            "s1_ms": s1,
+            "s2_ms": s2,
+            "s3_ms": s3,
             "delta_front_ms": ld.delta_front_ms,
             "delta_leader_ms": ld.delta_leader_ms,
             "gap_front": fmt_delta(ld.delta_front_ms),
@@ -208,15 +216,22 @@ def build_standings(state: RaceState, limit: int = 24) -> list[dict]:
                     ident_idx = 0 if is_me else min(1, len(missing_identities) - 1)
                     dname, tname = missing_identities[ident_idx]
 
+                synth_s1 = sh.last_s1_ms if (sh and sh.last_s1_ms > 0) else ref_car.get("s1_ms", 0)
+                synth_s2 = sh.last_s2_ms if (sh and sh.last_s2_ms > 0) else ref_car.get("s2_ms", 0)
+                synth_s3 = sh.last_s3_ms if (sh and sh.last_s3_ms > 0) else ref_car.get("s3_ms", 0)
                 synth_row = {
                     "idx": slot_idx,
                     "pos": m_pos,
+                    "grid_pos": m_pos,
                     "name": dname,
                     "team": tname,
                     "lap": lap_num,
                     "last_lap_ms": last_ms,
                     "last_lap": fmt_ms(last_ms),
                     "best_lap": fmt_ms(best_ms),
+                    "s1_ms": synth_s1,
+                    "s2_ms": synth_s2,
+                    "s3_ms": synth_s3,
                     "delta_front_ms": my_delta_front_ms,
                     "delta_leader_ms": my_delta_leader_ms,
                     "gap_front": fmt_delta(my_delta_front_ms),

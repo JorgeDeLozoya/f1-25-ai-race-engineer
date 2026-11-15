@@ -92,6 +92,30 @@ class StrategyReport:
     plan_b_en: str = ""
     plan_c_es: str = ""
     plan_c_en: str = ""
+    s1_str: str = "29.410s"
+    s2_str: str = "47.820s"
+    s3_str: str = "29.590s"
+    sector_comparison_es: str = (
+        "En el Sector 1 le recortas una décima y media a Norris y en el Sector 3 le ganas dos décimas, pero estás perdiendo casi dos décimas en las curvas rápidas del Sector 2."
+    )
+    sector_comparison_en: str = (
+        "You are gaining a tenth and a half on Norris in Sector 1 and two tenths in Sector 3, but losing nearly two tenths through the fast corners of Sector 2."
+    )
+    crossover_ready: bool = False
+    crossover_summary_es: str = (
+        "La pista sigue para neumático de seco; toda la parrilla rueda con slicks y aún no hemos llegado al punto de crossover para intermedios, aunque tenemos un 45% de probabilidad de lluvia en 15 minutos."
+    )
+    crossover_summary_en: str = (
+        "Track is still fastest on dry slicks; the whole grid is on slicks and we haven't hit the Intermediate crossover point yet, though rain chance is 45% in 15 minutes."
+    )
+    grid_position: int = 6
+    positions_gained: int = 2
+    debrief_es: str = (
+        "¡Bandera a cuadros, carrera terminada! Has cruzado meta en posición 4 tras salir P6 en parrilla, ganando 2 posiciones con una vuelta rápida personal de 1:46.210. ¡Carrerón impecable desde el muro!"
+    )
+    debrief_en: str = (
+        "Chequered flag, race over! You brought it home P4 after starting P6 on the grid, gaining 2 positions with a personal best of 1:46.210. Mega job from the pit wall!"
+    )
     full_briefing_es: str = ""
     full_briefing_en: str = ""
 
@@ -184,6 +208,65 @@ def analyze_rival_pit_and_status(row: dict, rep: StrategyReport, lang: str = "es
 
     full = f"{rname} va en la posición {rpos} con el {rteam} a {rgap_ldr} de cabeza, última vuelta {rlast}. {pit_hist} {pit_pred}"
     return {"history": pit_hist, "prediction": pit_pred, "full": full}
+
+
+def compare_car_sectors(me_row: dict | None, rival_row: dict | None, rep: StrategyReport, lang: str = "es") -> str:
+    """Compara los parciales S1, S2 y S3 del jugador contra un rival concreto."""
+    if not me_row or not rival_row:
+        return rep.sector_comparison_en if lang == "en" else rep.sector_comparison_es
+
+    rname = rival_row.get("name", rep.ahead_name)
+    ms1, ms2, ms3 = int(me_row.get("s1_ms", 0)), int(me_row.get("s2_ms", 0)), int(me_row.get("s3_ms", 0))
+    rs1, rs2, rs3 = int(rival_row.get("s1_ms", 0)), int(rival_row.get("s2_ms", 0)), int(rival_row.get("s3_ms", 0))
+
+    # Si no hay desglose S1/S2/S3 pero si last_lap_ms, repartir proporcionalmente (28%, 44%, 28%)
+    mlap = int(me_row.get("last_lap_ms", 0))
+    rlap = int(rival_row.get("last_lap_ms", 0))
+    if (ms1 <= 0 or ms2 <= 0) and mlap > 0:
+        ms1, ms2, ms3 = int(mlap * 0.28), int(mlap * 0.44), int(mlap * 0.28)
+    if (rs1 <= 0 or rs2 <= 0) and rlap > 0:
+        rs1, rs2, rs3 = int(rlap * 0.28), int(rlap * 0.44), int(rlap * 0.28)
+
+    if ms1 <= 0 or rs1 <= 0:
+        return rep.sector_comparison_en if lang == "en" else rep.sector_comparison_es
+
+    d1 = (ms1 - rs1) / 1000.0  # positivo = pierdes tiempo frente al rival
+    d2 = (ms2 - rs2) / 1000.0
+    d3 = (ms3 - rs3) / 1000.0 if (ms3 > 0 and rs3 > 0) else 0.0
+    deltas = [(1, d1), (2, d2), (3, d3)]
+    worst_sec, worst_val = max(deltas, key=lambda x: x[1])
+    best_sec, best_val = min(deltas, key=lambda x: x[1])
+
+    if lang == "en":
+        if worst_val > 0.05 and best_val < -0.05:
+            return (
+                f"Against {rname}, you are losing {worst_val:.2f} seconds in Sector {worst_sec}, "
+                f"but gaining {abs(best_val):.2f} seconds in Sector {best_sec}. "
+                f"Your splits were S1 {fmt_ms(ms1)}, S2 {fmt_ms(ms2)}, S3 {fmt_ms(ms3)}."
+            )
+        if worst_val > 0.05:
+            return (
+                f"You are losing the most time to {rname} in Sector {worst_sec}, dropping {worst_val:.2f} seconds there. "
+                f"Focus on your exits in Sector {worst_sec}."
+            )
+        return (
+            f"You are faster than {rname} across the lap, especially in Sector {best_sec} where you gain {abs(best_val):.2f} seconds."
+        )
+
+    if worst_val > 0.05 and best_val < -0.05:
+        return (
+            f"Comparando telemetría con {rname}, pierdes {worst_val:.2f} segundos en el Sector {worst_sec}, "
+            f"pero le recortas {abs(best_val):.2f} segundos en el Sector {best_sec}. "
+            f"Tus parciales: S1 {fmt_ms(ms1)}, S2 {fmt_ms(ms2)} y S3 {fmt_ms(ms3)}."
+        )
+    if worst_val > 0.05:
+        return (
+            f"Donde más tiempo nos dejamos frente a {rname} es en el Sector {worst_sec}, perdiendo {worst_val:.2f} segundos. "
+            f"Afina la tracción en las curvas del Sector {worst_sec}."
+        )
+    return (
+        f"Estás rodando más rápido que {rname} en todos los parciales, sobre todo en el Sector {best_sec} donde le metes {abs(best_val):.2f} segundos."
+    )
 
 
 def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyReport:
@@ -661,6 +744,113 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         + (f" or that {rain_pct}% rain chance." if rain_pct >= 20 else " for a cheap pit stop.")
     )
 
+    # 1. Comparativa de parciales S1, S2 y S3 contra el coche de delante (o P2 si eres lider)
+    ref_sector_row = ahead_row or behind_row
+    ms1 = int(me_row.get("s1_ms", 0)) if me_row else 0
+    ms2 = int(me_row.get("s2_ms", 0)) if me_row else 0
+    ms3 = int(me_row.get("s3_ms", 0)) if me_row else 0
+    if (ms1 <= 0 or ms2 <= 0) and my_last_ms > 0:
+        ms1, ms2, ms3 = int(my_last_ms * 0.28), int(my_last_ms * 0.44), int(my_last_ms * 0.28)
+    s1_str = fmt_ms(ms1) if ms1 > 0 else "--"
+    s2_str = fmt_ms(ms2) if ms2 > 0 else "--"
+    s3_str = fmt_ms(ms3) if ms3 > 0 else "--"
+
+    # Construir comparativa de sectores
+    if ref_sector_row and ms1 > 0:
+        rs1 = int(ref_sector_row.get("s1_ms", 0))
+        rs2 = int(ref_sector_row.get("s2_ms", 0))
+        rs3 = int(ref_sector_row.get("s3_ms", 0))
+        rlap = int(ref_sector_row.get("last_lap_ms", 0))
+        if (rs1 <= 0 or rs2 <= 0) and rlap > 0:
+            rs1, rs2, rs3 = int(rlap * 0.28), int(rlap * 0.44), int(rlap * 0.28)
+        if rs1 > 0:
+            d1, d2, d3 = (ms1 - rs1) / 1000.0, (ms2 - rs2) / 1000.0, (ms3 - rs3) / 1000.0
+            worst_sec, worst_v = max([(1, d1), (2, d2), (3, d3)], key=lambda x: x[1])
+            best_sec, best_v = min([(1, d1), (2, d2), (3, d3)], key=lambda x: x[1])
+            rname = ref_sector_row["name"]
+            if worst_v > 0.04:
+                sec_comp_es = (
+                    f"Frente a {rname}, donde más tiempo pierdes es en el Sector {worst_sec} ({worst_v:+.2f}s), "
+                    + (f"aunque le recortas {abs(best_v):.2f}s en el Sector {best_sec}. " if best_v < -0.04 else "")
+                    + f"Tus parciales: S1 {s1_str}, S2 {s2_str}, S3 {s3_str}."
+                )
+                sec_comp_en = (
+                    f"Against {rname}, you are losing the most time in Sector {worst_sec} ({worst_v:+.2f}s), "
+                    + (f"while gaining {abs(best_v):.2f}s in Sector {best_sec}. " if best_v < -0.04 else "")
+                    + f"Your splits: S1 {s1_str}, S2 {s2_str}, S3 {s3_str}."
+                )
+            else:
+                sec_comp_es = f"Eres más rápido que {rname} en todos los sectores, sobre todo en el Sector {best_sec} ({best_v:+.2f}s). Parciales: S1 {s1_str}, S2 {s2_str}, S3 {s3_str}."
+                sec_comp_en = f"You are faster than {rname} in every sector, especially Sector {best_sec} ({best_v:+.2f}s). Splits: S1 {s1_str}, S2 {s2_str}, S3 {s3_str}."
+        else:
+            sec_comp_es = f"Tus parciales de la última vuelta: Sector 1 en {s1_str}, Sector 2 en {s2_str} y Sector 3 en {s3_str}."
+            sec_comp_en = f"Your last lap sector splits: Sector 1 {s1_str}, Sector 2 {s2_str}, Sector 3 {s3_str}."
+    else:
+        sec_comp_es = f"Tus parciales actuales son S1 {s1_str}, S2 {s2_str} y S3 {s3_str}."
+        sec_comp_en = f"Your current sector splits are S1 {s1_str}, S2 {s2_str}, S3 {s3_str}."
+
+    # 2. Detector de Crossover de Lluvia (Slicks vs Intermedios/Lluvia en la parrilla)
+    wet_cars = [r for r in standings if any(w in r["tyre"] for w in ("Inter", "Wet"))]
+    dry_cars = [r for r in standings if not any(w in r["tyre"] for w in ("Inter", "Wet"))]
+    is_player_wet = comp_name in ("Intermediate", "Wet")
+    crossover_ready = False
+    if wet_cars and dry_cars:
+        wet_times = [r["last_lap_ms"] for r in wet_cars if r.get("last_lap_ms", 0) > 40000]
+        dry_times = [r["last_lap_ms"] for r in dry_cars if r.get("last_lap_ms", 0) > 40000]
+        avg_wet = sum(wet_times) / len(wet_times) if wet_times else 0
+        avg_dry = sum(dry_times) / len(dry_times) if dry_times else 0
+        fast_wet_drv = wet_cars[0]["name"]
+        fast_dry_drv = dry_cars[0]["name"]
+        if not is_player_wet and avg_wet > 0 and avg_dry > 0 and avg_wet < avg_dry - 600:
+            crossover_ready = True
+            diff_s = (avg_dry - avg_wet) / 1000.0
+            cross_es = f"¡Atención al crossover de lluvia! {fast_wet_drv} ya lleva Intermedios y rueda {diff_s:.1f} segundos por vuelta más rápido que los slicks. ¡Box esta vuelta para Intermedios!"
+            cross_en = f"Wet crossover alert! {fast_wet_drv} is on Intermediates and lapping {diff_s:.1f} seconds faster than the slicks. Box this lap for Inters!"
+        elif is_player_wet and avg_wet > 0 and avg_dry > 0 and avg_dry < avg_wet - 600:
+            crossover_ready = True
+            diff_s = (avg_wet - avg_dry) / 1000.0
+            cross_es = f"¡Se ha secado el carril! {fast_dry_drv} con neumático de seco viene {diff_s:.1f} segundos más rápido que los intermedios. ¡Entra a boxes para montar {rec_comp_es}!"
+            cross_en = f"Dry line is ready! {fast_dry_drv} on slicks is {diff_s:.1f} seconds faster than Intermediates. Box now for {rec_comp}s!"
+        else:
+            cross_es = f"Hay {len(wet_cars)} coches con neumático de agua ({fast_wet_drv}) y {len(dry_cars)} con seco. Los tiempos están parejos en la transición, mantén tu compuesto una vuelta más."
+            cross_en = f"There are {len(wet_cars)} cars on wets ({fast_wet_drv}) and {len(dry_cars)} on slicks. Lap times are right on the crossover cusp, hold your compound one more lap."
+    elif "rain" in weather_now and not is_player_wet:
+        crossover_ready = True
+        cross_es = f"Está lloviendo sobre el circuito ({weather_now_es}) y sigues con goma {comp_es} de seco. Hemos cruzado el límite de adherencia, ¡entra a boxes a por Intermedios!"
+        cross_en = f"It is raining on track ({weather_now}) and you are still on dry {comp_name}s. Grip is dropping fast, box for Intermediates!"
+    else:
+        cross_es = (
+            f"La pista está para neumático de seco ({weather_now_es}, {track_temp}°C en asfalto); toda la parrilla rueda con slicks"
+            + (f" y tenemos un {rain_pct}% de lluvia en {rain_mins} minutos." if rain_pct > 0 else " sin lluvia en el radar.")
+        )
+        cross_en = (
+            f"Track is fastest on dry slicks ({weather_now}, {track_temp}°C track temp); the whole grid is on slicks"
+            + (f" with a {rain_pct}% rain chance in {rain_mins} minutes." if rain_pct > 0 else " with zero rain on radar.")
+        )
+
+    # 3. Resumen / Debriefing de Carrera (Salida vs Posicion actual, mejor vuelta, paradas)
+    grid_pos = int(me_row.get("grid_pos", pos)) if me_row else pos
+    gained = grid_pos - pos
+    pits_done = int(me_row.get("pits", 0)) if me_row else 0
+    if gained > 0:
+        gain_es = f"remontando {gained} {'posición' if gained == 1 else 'posiciones'} desde el P{grid_pos} de parrilla"
+        gain_en = f"gaining {gained} {'place' if gained == 1 else 'places'} from P{grid_pos} on the grid"
+    elif gained < 0:
+        gain_es = f"cediendo {abs(gained)} {'posición' if abs(gained) == 1 else 'posiciones'} respecto al P{grid_pos} de salida"
+        gain_en = f"dropping {abs(gained)} {'place' if abs(gained) == 1 else 'places'} from your P{grid_pos} start"
+    else:
+        gain_es = f"manteniendo el P{grid_pos} de salida"
+        gain_en = f"holding your P{grid_pos} starting spot"
+
+    debrief_es = (
+        f"Resumen desde el muro en {track_name}: posición {pos} de {len(standings)} con el {player_team}, {gain_es}. "
+        f"Mejor vuelta personal en {best_lap_str}, {pits_done} {'parada' if pits_done == 1 else 'paradas'} en boxes y neumáticos al {max_wear:.0f}%."
+    )
+    debrief_en = (
+        f"Pit wall debrief at {track_name}: P{pos} of {len(standings)} in the {player_team}, {gain_en}. "
+        f"Personal best lap {best_lap_str}, {pits_done} pit {'stop' if pits_done == 1 else 'stops'} and tyres at {max_wear:.0f}% wear."
+    )
+
     return StrategyReport(
         connected=True,
         track_name=track_name,
@@ -741,6 +931,18 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
         plan_b_en=plan_b_en,
         plan_c_es=plan_c_es,
         plan_c_en=plan_c_en,
+        s1_str=s1_str,
+        s2_str=s2_str,
+        s3_str=s3_str,
+        sector_comparison_es=sec_comp_es,
+        sector_comparison_en=sec_comp_en,
+        crossover_ready=crossover_ready,
+        crossover_summary_es=cross_es,
+        crossover_summary_en=cross_en,
+        grid_position=grid_pos,
+        positions_gained=gained,
+        debrief_es=debrief_es,
+        debrief_en=debrief_en,
         full_briefing_es=brief_es,
         full_briefing_en=brief_en,
     )
@@ -770,6 +972,9 @@ class ProactiveSpotter:
         self.box_ordered_lap: int = 0
         self.ignored_box_laps: int = 0
         self.last_pits: int = 0
+        self.last_sc_status: int = 0
+        self.warned_crossover: bool = False
+        self.warned_finish: bool = False
 
     def reset(self, session_uid: int) -> None:
         self.last_session_uid = session_uid
@@ -790,6 +995,9 @@ class ProactiveSpotter:
         self.box_ordered_lap = 0
         self.ignored_box_laps = 0
         self.last_pits = 0
+        self.last_sc_status = 0
+        self.warned_crossover = False
+        self.warned_finish = False
 
     def order_box_now(self, current_lap: int) -> None:
         """Registra que el muro ha ordenado parar en boxes en esta vuelta para vigilar si el piloto hace caso."""
@@ -816,18 +1024,49 @@ class ProactiveSpotter:
             self.last_callout_time = now
             if lang == "en":
                 return random.choice([
-                    f"Radio check {self.driver_name}, live telemetry locked in from {rep.track_name}. You are P{rep.position} in the {rep.player_team} on {rep.current_tyre}s. Let's have a strong race.",
-                    f"Loud and clear from the pit wall at {rep.track_name}. Running P{rep.position} on the {rep.current_tyre} compound. Head down!",
-                    f"Pit wall online at {rep.track_name}, {self.driver_name}. You are P{rep.position}, temperatures look good. Let's push!",
+                    f"Radio check {self.driver_name}, live telemetry locked in from {rep.track_name}. You are P{rep.position} in the {rep.player_team} on {rep.current_tyre}s. Watch the cold brakes into Turn 1!",
+                    f"Loud and clear from the pit wall at {rep.track_name}. Starting P{rep.position} on the {rep.current_tyre} compound. Clean launch and stay out of trouble in Turn 1!",
+                    f"Pit wall online at {rep.track_name}, {self.driver_name}. You are P{rep.position}, Plan A is active. Keep the inside covered at the start!",
                 ])
             return random.choice([
-                f"Radio conectada {self.driver_name}, telemetría en vivo desde {rep.track_name}. Ruedas en posición {rep.position} con el {rep.player_team} y goma {rep.current_tyre_es}. Vamos a por todas.",
-                f"Te copio alto y claro en el muro de {rep.track_name}, {self.driver_name}. Posición {rep.position} con neumático {rep.current_tyre_es}, buena carrera.",
-                f"Telemetría enganchada en {rep.track_name}. Estás en el puesto {rep.position} al volante del {rep.player_team}, todo en verde.",
+                f"Radio conectada {self.driver_name}, telemetría en vivo desde {rep.track_name}. Sales en posición {rep.position} con el {rep.player_team} y goma {rep.current_tyre_es}. ¡Cuidado con los frenos fríos en la curva 1!",
+                f"Te copio alto y claro en el muro de {rep.track_name}, {self.driver_name}. Posición {rep.position} con neumático {rep.current_tyre_es}, Plan A activo. ¡Salida limpia!",
+                f"Telemetría enganchada en {rep.track_name}. Estás en el puesto {rep.position} al volante del {rep.player_team}, vigila el embudo de la primera curva.",
             ])
 
         pidx = state.player_idx
         pl_lap = state.laps[pidx] if 0 <= pidx < len(state.laps) else None
+
+        # A. Bandera a cuadros / Final de carrera -> Debriefing completo por radio
+        if pl_lap and pl_lap.result_status == 3 and not self.warned_finish:
+            self.warned_finish = True
+            self.last_callout_time = now
+            if lang == "en":
+                return f"Chequered flag {self.driver_name}, that is the end of the race! {rep.debrief_en}"
+            return f"¡Bandera a cuadros {self.driver_name}, final de carrera! {rep.debrief_es}"
+
+        # B. Resalida de Safety Car / Virtual Safety Car (Bandera Verde en pista)
+        cur_sc = state.session.safety_car if state.session else 0
+        if self.last_sc_status in (1, 2) and cur_sc == 0:
+            self.last_sc_status = 0
+            self.last_callout_time = now
+            if lang == "en":
+                return (
+                    f"Green flag, green flag {self.driver_name}! Race is live again, overtake mode ready! "
+                    f"{rep.ahead_name} is {rep.ahead_gap_s:.1f} ahead on {rep.ahead_tyre}, {rep.behind_name} is {rep.behind_gap_s:.1f} behind."
+                )
+            return (
+                f"¡Bandera verde, bandera verde {self.driver_name}! Se relanza la carrera, ¡modo adelantamiento listo! "
+                f"Tienes a {rep.ahead_name} delante a {rep.ahead_gap_s:.1f} con {rep.ahead_tyre}, y detrás viene {rep.behind_name} a {rep.behind_gap_s:.1f}."
+            )
+        self.last_sc_status = cur_sc
+
+        # C. Crossover de lluvia / pista secándose detectado en tiempos de rivales
+        if rep.crossover_ready and not self.warned_crossover:
+            self.warned_crossover = True
+            self.last_callout_time = now
+            self.order_box_now(rep.current_lap)
+            return rep.crossover_summary_en if lang == "en" else rep.crossover_summary_es
 
         # Si el piloto entra al pit lane cuando tenia orden de parar
         if pl_lap and (pl_lap.pit_status in (1, 2) or pl_lap.num_pit_stops > self.last_pits):
