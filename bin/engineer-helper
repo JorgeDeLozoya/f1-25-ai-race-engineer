@@ -1,6 +1,0 @@
-#!/usr/bin/env sh
-DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-if [ -x "$DIR/.venv/bin/python" ]; then
-    exec "$DIR/.venv/bin/python" -u "$DIR/swofty_helper.py" "$@"
-fi
-exec python3 -u "$DIR/swofty_helper.py" "$@"
