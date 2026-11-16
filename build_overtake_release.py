@@ -277,6 +277,16 @@ def build(rebuild_binary: bool = False):
         shutil.copytree(RELEASE_DIR, dest_folder)
         print(f" -> Carpeta en Escritorio sincronizada: {dest_folder}")
 
+        # Tambien sincronizar si el usuario tiene la carpeta suelta en el Escritorio
+        direct_standalone = DESKTOP_DIR / "1_Standalone_Version (Sin Swofty)"
+        try:
+            if direct_standalone.exists():
+                shutil.rmtree(direct_standalone)
+            shutil.copytree(folder_standalone, direct_standalone)
+            print(f" -> Carpeta directa Standalone en Escritorio sincronizada: {direct_standalone}")
+        except Exception as e:
+            print(f" [!] Aviso sync Standalone directo: {e}")
+
     descargas_dir = Path(r"D:\Descargas\F1_25_AI_Race_Engineer_v1.0.3_Overtake")
     if descargas_dir.parent.exists():
         try:

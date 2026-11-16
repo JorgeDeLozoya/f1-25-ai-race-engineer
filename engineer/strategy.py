@@ -705,11 +705,17 @@ def analyze_strategy(state: RaceState, driver_label: str = "Driver") -> Strategy
     else:
         est_tyre_laps_left = max(0, int((68.0 - max_wear) / wear_per_lap))
 
-    ideal_lap = s.pit_window_ideal if s and s.pit_window_ideal > 0 else max(1, total_laps // 2 - 1)
-    latest_lap = s.pit_window_latest if s and s.pit_window_latest > 0 else max(2, total_laps // 2 + 1)
-    if ov.pit_lap_override > 0:
-        ideal_lap = ov.pit_lap_override
-        latest_lap = min(total_laps, ov.pit_lap_override + 1)
+    # En carreras cortas (5 vueltas, 3 vueltas, sprint corto de <= 10 vueltas) NO HAY PARADAS EN BOXES
+    is_short_race = total_laps <= 10
+    if is_short_race and max_wear < 65.0:
+        ideal_lap = 0
+        latest_lap = 0
+    else:
+        ideal_lap = s.pit_window_ideal if s and s.pit_window_ideal > 0 else max(1, total_laps // 2 - 1)
+        latest_lap = s.pit_window_latest if s and s.pit_window_latest > 0 else max(2, total_laps // 2 + 1)
+        if ov.pit_lap_override > 0:
+            ideal_lap = ov.pit_lap_override
+            latest_lap = min(total_laps, ov.pit_lap_override + 1)
 
     pit_loss_ms = 13000 if sc_status in (1, 2) else 21500
     after_pit_delta = my_delta_leader_ms + pit_loss_ms
@@ -744,22 +750,22 @@ def analyze_strategy(state: RaceState, driver_label: str = "Driver") -> Strategy
         box_rec = "BOX THIS LAP (WING DAMAGE)"
     elif max_wear >= 65.0 and laps_rem > 1:
         box_rec = "BOX THIS LAP (TYRE WEAR CRITICAL)"
-    elif sc_status in (1, 2) and max_wear >= 35.0 and laps_rem >= 5:
+    elif sc_status in (1, 2) and max_wear >= 35.0 and laps_rem >= 5 and not is_short_race:
         box_rec = "BOX UNDER SAFETY CAR (FREE STOP)"
     elif rain_pct >= 55 and 0 < rain_mins <= 10 and comp_name not in ("Intermediate", "Wet"):
         box_rec = "HOLD OUT FOR RAIN"
     elif ov.pit_lap_override > 0:
         box_rec = f"PLAN {ov.active_plan} (Vuelta {ideal_lap} -> {rec_comp})"
+    elif is_short_race:
+        box_rec = "STAY OUT (SPRINT / NO STOPS)"
     elif total_laps >= 8 and ideal_lap <= cur_lap <= latest_lap and my_pits == 0:
         box_rec = "PIT WINDOW OPEN"
-    elif total_laps <= 7:
-        box_rec = "STAY OUT (SPRINT / NO STOPS)"
     else:
         box_rec = "STAY OUT"
 
-    if total_laps <= 7:
-        rejoin_es = f"Carrera al sprint a {total_laps} vueltas sin paradas en boxes. Quédate en pista hasta meta."
-        rejoin_en = f"{total_laps}-lap sprint race with no pit stops. Stay out to the finish line."
+    if is_short_race:
+        rejoin_es = f"Carrera corta a {total_laps} vueltas sin paradas en boxes. Neumáticos al {max_wear:.0f}%, quédate en pista hasta meta."
+        rejoin_en = f"Short {total_laps}-lap race with NO pit stops scheduled. Tyres at {max_wear:.0f}% wear, stay out to the chequered flag."
     else:
         rejoin_es = (
             f"Si entras a boxes en esta vuelta saldrías en la posición {rejoin_pos}"
@@ -1245,6 +1251,7 @@ class ProactiveSpotter:
         self.last_sc_status: int = 0
         self.warned_crossover: bool = False
         self.warned_finish: bool = False
+        self.silent_mode: bool = False
 
     def reset(self, session_uid: int) -> None:
         self.last_session_uid = session_uid
@@ -1283,7 +1290,10 @@ class ProactiveSpotter:
         # Esperar 1.2s al inicio de sesion para que lleguen Participants (4), Status (7) y Swofty Track (200)
         if state.first_packet_time > 0 and (now - state.first_packet_time < 1.2) and not state.participants:
             return None
-        if now - self.last_callout_time < 8.5:
+
+        # Frecuencia de avisos inteligente: si está en modo silencioso solo emergencias
+        cooldown = 45.0 if self.silent_mode else 22.0
+        if now - self.last_callout_time < cooldown:
             return None
 
         rep = analyze_strategy(state, self.driver_name)
@@ -1352,6 +1362,16 @@ class ProactiveSpotter:
                         return f"Finally in the pit lane {self.driver_name}! Pit limiter on, the crew is ready for you."
                     return f"¡Aleluya {self.driver_name}, por fin entras a boxes! Ya nos tenías cardíacos en el muro, clava las marcas de los mecánicos."
 
+        # Si el piloto ha activado el SILENCIO DE RADIO ("habla menos", "silencio de radio", etc.)
+        if self.silent_mode:
+            is_critical = (
+                cur_sc > 0
+                or (0 <= pidx < len(state.damage) and max(state.damage[pidx].front_left_wing, state.damage[pidx].front_right_wing) >= 30 and max(state.damage[pidx].front_left_wing, state.damage[pidx].front_right_wing) > self.warned_wing_dmg)
+                or (pl_lap and pl_lap.result_status == 3 and not self.warned_finish)
+            )
+            if not is_critical:
+                return None
+
         # 0. Adelantamiento ganado o posicion perdida en pista (a partir de vuelta 2)
         if self.last_pos > 0 and rep.position != self.last_pos and rep.current_lap >= 2:
             old_pos = self.last_pos
@@ -1386,6 +1406,11 @@ class ProactiveSpotter:
         # 1. Cambio de vuelta: Comprobar si ha ignorado la orden de BOX, Ultima vuelta, Quedan 3 vueltas, Ventana abierta
         if rep.current_lap != self.last_lap and rep.current_lap > 1:
             self.last_lap = rep.current_lap
+
+            # Si es carrera corta (<= 10 vueltas) o los neumáticos están sanos (< 60%), NO hay parada obligatoria
+            if rep.total_laps <= 10 or rep.max_wear_pct < 60.0:
+                self.box_ordered = False
+                self.ignored_box_laps = 0
 
             # ¿Tenia orden de entrar a boxes y se ha saltado la entrada al pit lane?
             if self.box_ordered and rep.current_lap > self.box_ordered_lap and rep.laps_remaining >= 1:

@@ -183,65 +183,67 @@ TEAMS = {
     486: "Cadillac",
 }
 
-# Mapeo de todos los pilotos oficiales (modernos y clásicos) a su escudería
+# Mapeo de todos los pilotos oficiales (modernos 2024-2026 y clásicos) a su escudería
 OFFICIAL_DRIVER_TEAMS: dict[str, str] = {
-    # Red Bull Racing
+    # Red Bull Racing / Red Bull Ford
     "VERSTAPPEN": "Red Bull",
     "PEREZ": "Red Bull",
+    "HADJAR": "Red Bull",
+    "RICCIARDO": "Red Bull",
     "VETTEL": "Red Bull",
     "WEBBER": "Red Bull",
-    "RICCIARDO": "Red Bull",
     # Scuderia Ferrari
     "LECLERC": "Ferrari",
     "HAMILTON": "Ferrari",
-    "SAINZ": "Ferrari",
-    "ALONSO": "Ferrari",
     "MASSA": "Ferrari",
     "RAIKKONEN": "Ferrari",
     "RÄIKKÖNEN": "Ferrari",
-    # McLaren
+    # McLaren Formula 1 Team
     "NORRIS": "McLaren",
     "PIASTRI": "McLaren",
     "BUTTON": "McLaren",
-    # Mercedes-AMG
+    # Mercedes-AMG Petronas
     "RUSSELL": "Mercedes",
     "ANTONELLI": "Mercedes",
     "SCHUMACHER": "Mercedes",
     "ROSBERG": "Mercedes",
-    # Aston Martin
+    # Aston Martin Aramco
+    "ALONSO": "Aston Martin",
     "STROLL": "Aston Martin",
-    # Williams Racing
+    # Williams Racing (2025/2026: Sainz & Albon)
+    "SAINZ": "Williams",
     "ALBON": "Williams",
-    "COLAPINTO": "Williams",
     "BARRICHELLO": "Williams",
-    # Alpine / Renault
+    # Alpine F1 Team
     "GASLY": "Alpine",
     "DOOHAN": "Alpine",
-    "OCON": "Alpine",
-    "KUBICA": "Renault",
-    "PETROV": "Renault",
-    # Racing Bulls / Toro Rosso
-    "TSUNODA": "Racing Bulls",
-    "LAWSON": "Racing Bulls",
-    "HADJAR": "Racing Bulls",
-    "BUEMI": "Toro Rosso",
-    "ALGUERSUARI": "Toro Rosso",
-    # Haas F1 Team
-    "BEARMAN": "Haas",
-    "MAGNUSSEN": "Haas",
-    "HULKENBERG": "Haas",
-    "HÜLKENBERG": "Haas",
-    # Sauber / Kick / Audi
-    "BORTOLETO": "Sauber",
+    "COLAPINTO": "Alpine",
+    # Audi F1 Team / Sauber (2026)
+    "HULKENBERG": "Audi",
+    "HÜLKENBERG": "Audi",
+    "BORTOLETO": "Audi",
     "BOTTAS": "Sauber",
     "ZHOU": "Sauber",
-    "DE LA ROSA": "Sauber",
-    "KOBAYASHI": "Sauber",
+    # Haas F1 Team (2025/2026: Ocon & Bearman)
+    "OCON": "Haas",
+    "BEARMAN": "Haas",
+    "MAGNUSSEN": "Haas",
+    # Racing Bulls / RB F1 Team
+    "TSUNODA": "Racing Bulls",
+    "LAWSON": "Racing Bulls",
+    "BUEMI": "Toro Rosso",
+    "ALGUERSUARI": "Toro Rosso",
+    # Cadillac F1 Team
+    "CADILLAC": "Cadillac",
     # Equipos históricos
+    "KUBICA": "Renault",
+    "PETROV": "Renault",
     "SENNA": "HRT (Hispania)",
     "CHANDHOK": "HRT (Hispania)",
     "SUTIL": "Force India",
     "LIUZZI": "Force India",
+    "DE LA ROSA": "Sauber",
+    "KOBAYASHI": "Sauber",
     "TRULLI": "Lotus Racing",
     "KOVALAINEN": "Lotus Racing",
     "GLOCK": "Virgin Racing",
@@ -254,15 +256,18 @@ CLASSIC_DRIVER_TEAMS = OFFICIAL_DRIVER_TEAMS
 TEAM_STYLES: dict[str, tuple[str, str]] = {
     "Ferrari": ("#FF1E27", "FER"),
     "McLaren": ("#FF8000", "MCL"),
-    "Mercedes": ("#27F4D2", "MER"),
-    "Red Bull": ("#4781D7", "RBR"),
+    "Mercedes": ("#00D2BE", "MER"),
+    "Red Bull": ("#3671C6", "RBR"),
     "Aston Martin": ("#00E7A7", "AMR"),
-    "Williams": ("#64C4FF", "WIL"),
+    "Williams": ("#00A0DE", "WIL"),
     "Alpine": ("#00A8FF", "ALP"),
     "Racing Bulls": ("#6692FF", "RB"),
     "Toro Rosso": ("#5B8CFF", "STR"),
     "Haas": ("#F03A47", "HAAS"),
     "Sauber": ("#52E252", "KICK"),
+    "Audi": ("#F50537", "AUDI"),
+    "Audi / Sauber": ("#F50537", "AUDI"),
+    "Cadillac": ("#E5B842", "CAD"),
     "Audi / Sauber": ("#52E252", "KICK"),
     "HRT (Hispania)": ("#E5B842", "HRT"),
     "Renault": ("#FFD800", "REN"),
@@ -359,28 +364,35 @@ def resolve_radio_identity(
                 matched = True
                 break
         if not matched:
-            if "red bull" in t_low or "redbull" in t_low or "rbr" in t_low or drv_display in ("VERSTAPPEN", "PEREZ"):
+            if "red bull" in t_low or "redbull" in t_low or "ford" in t_low or drv_display in ("VERSTAPPEN", "PEREZ", "HADJAR"):
                 color_hex, badge_code = ("#3671C6", "RBR")
+            elif "audi" in t_low or drv_display in ("HULKENBERG", "HÜLKENBERG", "BORTOLETO"):
+                color_hex, badge_code = ("#F50537", "AUDI")
+            elif "cadillac" in t_low or "cad" in t_low:
+                color_hex, badge_code = ("#E5B842", "CAD")
             elif "aston" in t_low or drv_display in ("ALONSO", "STROLL"):
                 color_hex, badge_code = ("#00E7A7", "AMR")
-            elif "ferrari" in t_low or drv_display in ("LECLERC", "HAMILTON", "SAINZ"):
+            elif "ferrari" in t_low or drv_display in ("LECLERC", "HAMILTON"):
                 color_hex, badge_code = ("#FF1E27", "FER")
             elif "mclaren" in t_low or drv_display in ("NORRIS", "PIASTRI"):
                 color_hex, badge_code = ("#FF8000", "MCL")
             elif "mercedes" in t_low or drv_display in ("RUSSELL", "ANTONELLI"):
                 color_hex, badge_code = ("#00D2BE", "MER")
-            elif "williams" in t_low or drv_display in ("ALBON", "COLAPINTO"):
+            elif "williams" in t_low or drv_display in ("ALBON", "SAINZ"):
                 color_hex, badge_code = ("#00A0DE", "WIL")
-            elif "alpine" in t_low or drv_display in ("GASLY", "DOOHAN"):
+            elif "alpine" in t_low or drv_display in ("GASLY", "DOOHAN", "COLAPINTO"):
                 color_hex, badge_code = ("#0090FF", "ALP")
-            elif "sauber" in t_low or "kick" in t_low or drv_display in ("HULKENBERG", "HÜLKENBERG", "BORTOLETO"):
+            elif "sauber" in t_low or "kick" in t_low or drv_display in ("BOTTAS", "ZHOU"):
                 color_hex, badge_code = ("#52E252", "KICK")
             elif "haas" in t_low or drv_display in ("BEARMAN", "OCON", "MAGNUSSEN"):
                 color_hex, badge_code = ("#F03A47", "HAAS")
-            elif "bulls" in t_low or "rb" in t_low or drv_display in ("TSUNODA", "LAWSON", "HADJAR"):
+            elif "bulls" in t_low or "rb" in t_low or drv_display in ("TSUNODA", "LAWSON"):
                 color_hex, badge_code = ("#6692FF", "RB")
+            elif drv_display in OFFICIAL_DRIVER_TEAMS:
+                team_resolved = OFFICIAL_DRIVER_TEAMS[drv_display]
+                color_hex, badge_code = TEAM_STYLES.get(team_resolved, ("#3671C6", "RBR"))
             else:
-                color_hex, badge_code = ("#3671C6", "RBR") if drv_display in OFFICIAL_DRIVER_TEAMS else ("#FF1E27", "F1")
+                color_hex, badge_code = ("#FF1E27", "F1")
 
     # Si es un piloto oficial reconocido, su dorsal es el oficial (ej: Verstappen siempre 1)
     if drv_display in DRIVER_NUMBERS:

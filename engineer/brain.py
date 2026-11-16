@@ -469,6 +469,49 @@ class EngineerBrain:
             return f"¡Box, box {drv}! Entra a boxes en esta misma vuelta para montar goma {rep.recommended_compound_es}, los mecánicos ya te esperan, ¡no te quedes fuera!"
 
         # ------------------------------------------------------------------
+        # 2.5 CONTROL DE SILENCIO / FRECUENCIA DE RADIO ("HABLA MENOS", "HABLA MÁS", "SILENCIO DE RADIO")
+        # ------------------------------------------------------------------
+        silence_cmds = (
+            "habla menos", "hablas mucho", "menos avisos", "silencio de radio", "silencio radio",
+            "no me hables", "deja de hablar", "menos radio", "pesado", "callate", "cállate",
+            "quiet", "talk less", "speak less", "radio silence", "shut up", "leave me alone",
+            "stop talking", "too chatty", "less chatter", "less radio", "mute",
+        )
+        if any(sc in norm for sc in silence_cmds):
+            self.spotter.silent_mode = True
+            self.spotter.box_ordered = False
+            self.spotter.ignored_box_laps = 0
+            if lang == "en":
+                return self._pick("silence_en", [
+                    f"Understood {drv}, radio silence active. I'll leave you alone to drive, only critical safety car or damage.",
+                    f"Copy {drv}, going quiet on the radio. Head down and hit your marks, call me if you need anything.",
+                    f"Radio silence confirmed {drv}. Leaving you to it, only calling out emergency incidents.",
+                ])
+            return self._pick("silence_es", [
+                f"Entendido {drv}, silencio de radio activado. Te dejo tranquilo para pilotar, solo te avisaré de incidentes críticos o si me preguntas.",
+                f"Recibido {drv}, radio en silencio. Concéntrate en la pista y pulsa el botón si necesitas cualquier dato.",
+                f"Copiado {drv}, silencio en el muro. Solo entraré por radio si hay bandera amarilla o rotura grave.",
+            ])
+
+        resume_cmds = (
+            "habla mas", "habla más", "más avisos", "mas avisos", "más radio", "mas radio",
+            "más información", "mas informacion", "activa radio", "quitar silencio", "desactiva silencio",
+            "talk more", "speak more", "more radio", "keep me updated", "chatty", "full radio",
+            "cancel silence", "resume radio", "more updates",
+        )
+        if any(rc in norm for rc in resume_cmds):
+            self.spotter.silent_mode = False
+            if lang == "en":
+                return self._pick("resume_en", [
+                    f"Loud and clear {drv}, radio callouts restored to full. I will keep you updated on gaps, lap times, and rival strategies.",
+                    f"Copy that {drv}, full comms back online! Live telemetry updates resumed.",
+                ])
+            return self._pick("resume_es", [
+                f"Alto y claro {drv}, avisos de radio reactivados al completo. Te mantendré al día de huecos, tiempos y paradas de rivales.",
+                f"Recibido {drv}, radio activa al cien por cien. Te iré cantando el ritmo y las distancias.",
+            ])
+
+        # ------------------------------------------------------------------
         # 3. ¿EL PILOTO ESTA SIENDO BORDE / INSULTANDO / MANDANDO CALLAR?
         # ------------------------------------------------------------------
         if any(rk in norm for rk in RUDE_KEYWORDS):
@@ -1236,17 +1279,17 @@ class EngineerBrain:
         # 23. ESTRATEGIA / ¿DEBERIA PARAR EN BOXES? / PROXIMA PARADA
         # ------------------------------------------------------------------
         if any(k in norm for k in ("estrategia", "parar", "paro", "parada", "proxima parada", "boxes", "box", "pit", "ventana", "undercut", "overcut", "deberia", "entro", "entrar", "strategy", "window", "should", "stop", "lobbies")):
-            if rep.total_laps <= 7:
+            if rep.total_laps <= 10 and rep.max_wear_pct < 65.0:
                 if lang == "en":
                     return (
                         f"This is a {rep.total_laps}-lap sprint race {drv}, there are NO pit stops scheduled! "
-                        f"Your {rep.current_tyre}s are at {rep.max_wear_pct:.0f}% wear and easily go to the end. "
-                        f"It's flat out to the flag, manage your ERS down the straights to attack {rep.ahead_name}."
+                        f"Your {rep.current_tyre}s are only at {rep.max_wear_pct:.0f}% wear and easily go to the end. "
+                        f"It is flat out to the flag, no stops needed!"
                     )
                 return (
                     f"Esta es una carrera corta a {rep.total_laps} vueltas {drv}, ¡aquí NO hay parada en boxes programada! "
-                    f"Tus neumáticos {rep.current_tyre_es}s van al {rep.max_wear_pct:.0f}% de desgaste y aguantan de sobra hasta el final. "
-                    f"Es ir a fondo hasta la bandera a cuadros; administra el ERS en las rectas para cazar a {rep.ahead_name}."
+                    f"Tus neumáticos {rep.current_tyre_es}s van solo al {rep.max_wear_pct:.0f}% de desgaste y aguantan de sobra hasta el final. "
+                    f"¡Es ir a fondo hasta la bandera a cuadros sin entrar a boxes!"
                 )
 
             if rep.laps_remaining <= 2 and rep.total_laps >= 8:
@@ -1254,7 +1297,7 @@ class EngineerBrain:
                     return f"Negative on boxing {drv}, only {rep.laps_remaining} laps remaining! Pitting now would throw away all our track position, stay out and bring it home!"
                 return f"¡Negativo, no paramos {drv}! Quedan solo {rep.laps_remaining} vueltas para meta; entrar ahora sería regalar todas las posiciones. Quédate fuera y cruza la meta."
 
-            if "BOX" in rep.box_recommendation or rep.box_recommendation == "PIT WINDOW OPEN":
+            if ("BOX" in rep.box_recommendation or rep.box_recommendation == "PIT WINDOW OPEN") and rep.total_laps > 10:
                 self.spotter.order_box_now(rep.current_lap)
             if lang == "en":
                 return self._pick("strat_en", [
