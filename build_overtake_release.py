@@ -58,7 +58,7 @@ In OBS Studio:
 
 3. FOR SWOFTY LAUNCHER USERS
 --------------------------------------------------------------------------------
-If you use Swofty Launcher, simply double-click "jorgedelo.ai-race-engineer.swoftyaddon"
+If you use Swofty Launcher, simply double-click "ai_engineer.swoftyaddon"
 or drop it into Swofty to install it with one click!
 
 4. POPULAR RADIO VOICE COMMANDS
@@ -122,9 +122,9 @@ idiomas, y detección automática del piloto oficial que lleves.
 def build():
     print("=== 1. Empaquetando addon de Swofty (.swoftyaddon) ===")
     subprocess.run([str(VENV_PY), str(ROOT_DIR / "package_addon.py")], check=True)
-    addon_file = ROOT_DIR.parent / "jorgedelo.ai-race-engineer.swoftyaddon"
+    addon_file = ROOT_DIR.parent / "ai_engineer.swoftyaddon"
     if not addon_file.exists():
-        addon_file = ROOT_DIR / "jorgedelo.ai-race-engineer.swoftyaddon"
+        addon_file = ROOT_DIR / "ai_engineer.swoftyaddon"
 
     print("=== 2. Preparando punto de entrada main.py ===")
     entry_script = ROOT_DIR / "entrypoint.py"
@@ -135,7 +135,7 @@ def build():
 
     print("=== 3. Compilando binario con PyInstaller ===")
     assets_src = ROOT_DIR / "engineer" / "assets"
-    add_data_arg = f"{assets_src};engineer/assets"
+    vosk_src = ROOT_DIR / ".venv" / "Lib" / "site-packages" / "vosk"
 
     cmd = [
         str(PYINSTALLER_EXE),
@@ -143,9 +143,15 @@ def build():
         "--onedir",
         "--windowed",
         "--name=AI_Race_Engineer",
-        f"--add-data={add_data_arg}",
-        "--hidden-import=sounddevice",
-        "--hidden-import=soundfile",
+        f"--add-data={assets_src};engineer/assets",
+        f"--add-data={vosk_src};vosk",
+        f"--add-binary={vosk_src / 'libvosk.dll'};vosk",
+        f"--add-binary={vosk_src / 'libgcc_s_seh-1.dll'};vosk",
+        f"--add-binary={vosk_src / 'libstdc++-6.dll'};vosk",
+        f"--add-binary={vosk_src / 'libwinpthread-1.dll'};vosk",
+        "--collect-all=vosk",
+        "--collect-all=sounddevice",
+        "--collect-all=soundfile",
         "--hidden-import=edge_tts",
         "--hidden-import=pynput",
         "--hidden-import=pynput.keyboard",
@@ -167,6 +173,14 @@ def build():
     target_app_dir = RELEASE_DIR / "AI_Race_Engineer"
     shutil.copytree(app_dist_dir, target_app_dir)
 
+    # Asegurar que la carpeta vosk con todas sus DLLs existe en _internal
+    for app_dir in (app_dist_dir, target_app_dir):
+        v_internal = app_dir / "_internal" / "vosk"
+        v_internal.mkdir(parents=True, exist_ok=True)
+        for item in vosk_src.iterdir():
+            if item.is_file():
+                shutil.copy2(item, v_internal / item.name)
+
     # Copiar config.json y archivo de arranque rapido
     cfg_file = ROOT_DIR / "config.json"
     if cfg_file.exists():
@@ -175,7 +189,7 @@ def build():
 
     # Copiar el addon de Swofty empaquetado
     if addon_file.exists():
-        shutil.copy2(addon_file, RELEASE_DIR / "jorgedelo.ai-race-engineer.swoftyaddon")
+        shutil.copy2(addon_file, RELEASE_DIR / "ai_engineer.swoftyaddon")
 
     # Escribir README para Overtake
     (RELEASE_DIR / "README_OVERTAKE.txt").write_text(README_TEXT, encoding="utf-8")

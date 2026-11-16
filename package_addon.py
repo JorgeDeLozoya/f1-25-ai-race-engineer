@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-OUT_FILE = ROOT.parent / "jorgedelo.ai-race-engineer.swoftyaddon"
+OUT_FILE = ROOT.parent / "ai_engineer.swoftyaddon"
 
 INCLUDE_FILES = [
     "swofty.json",
