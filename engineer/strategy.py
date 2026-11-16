@@ -468,7 +468,7 @@ def compare_car_sectors(me_row: dict | None, rival_row: dict | None, rep: Strate
     )
 
 
-def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyReport:
+def analyze_strategy(state: RaceState, driver_label: str = "Driver") -> StrategyReport:
     """Calcula toda la situacion tactica, ritmo relativo, reglajes y posibles estrategias."""
     ov = LIVE_OVERRIDES
     if not state.connected or not state.laps:
@@ -1221,7 +1221,7 @@ def analyze_strategy(state: RaceState, driver_label: str = "Jorge") -> StrategyR
 class ProactiveSpotter:
     """Supervisa cambios en el estado de carrera y lanza avisos automaticos variados."""
 
-    def __init__(self, driver_name: str = "Jorge"):
+    def __init__(self, driver_name: str = "Driver"):
         self.driver_name = driver_name
         self.last_session_uid: int = 0
         self.last_lap: int = 0

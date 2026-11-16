@@ -17,7 +17,7 @@ class HelperShim
 
         string[] candidates = new string[] {
             Path.Combine(addonDir, ".venv", "Scripts", "python.exe"),
-            @"c:\Users\Jorge\.gemini\antigravity\scratch\f1_mods\ai_race_engineer\.venv\Scripts\python.exe",
+            Path.Combine(addonDir, "..", ".venv", "Scripts", "python.exe"),
             "python.exe"
         };
 
@@ -33,7 +33,11 @@ class HelperShim
 
         if (!File.Exists(scriptPath))
         {
-            scriptPath = @"c:\Users\Jorge\.gemini\antigravity\scratch\f1_mods\ai_race_engineer\swofty_helper.py";
+            string parentCandidate = Path.GetFullPath(Path.Combine(addonDir, "..", "swofty_helper.py"));
+            if (File.Exists(parentCandidate))
+            {
+                scriptPath = parentCandidate;
+            }
         }
 
         Directory.SetCurrentDirectory(Path.GetDirectoryName(scriptPath));

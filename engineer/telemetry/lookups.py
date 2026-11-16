@@ -290,13 +290,13 @@ DRIVER_NUMBERS: dict[str, int] = {
 def resolve_radio_identity(
     player_driver: str,
     player_team: str,
-    fallback_driver: str = "JORGE",
+    fallback_driver: str = "DRIVER",
     race_number: int = 0,
 ) -> tuple[str, str, str, int]:
     """Devuelve (display_driver_name, team_color_hex, badge_code, race_number) para el HUD F1 TV."""
     drv_clean = (player_driver or "").strip().upper()
     if not drv_clean or drv_clean.startswith("CAR #") or drv_clean in ("PLAYER", "JUGADOR", "UNKNOWN"):
-        drv_display = (fallback_driver or "JORGE").strip().upper()
+        drv_display = (fallback_driver or "DRIVER").strip().upper()
     else:
         # Quitar prefijos y quedarse con el apellido como en F1 TV ("LECLERC", "SENNA", "ALONSO")
         parts = drv_clean.split()

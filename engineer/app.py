@@ -130,15 +130,22 @@ class RaceEngineerApp:
 
             try:
                 from .strategy import analyze_strategy
+                from .telemetry import lookups as L
                 rep = analyze_strategy(state, self.cfg.driver_name)
-                dname = rep.player_driver.split()[0] if (rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #")) else self.cfg.driver_name
+                drv, color, badge, num = L.resolve_radio_identity(
+                    rep.player_driver,
+                    rep.player_team,
+                    fallback_driver=self.cfg.driver_name,
+                    race_number=rep.player_race_number,
+                )
                 self.web_overlay.trigger(
-                    driver=dname,
-                    number=str(rep.player_race_number or 1),
+                    driver=drv,
+                    number=str(num),
                     team=rep.player_team or "Formula 1",
                     speaker=self.cfg.engineer_name or "Engineer",
                     msg=reply,
-                    color="#e10600",
+                    color=color,
+                    badge=badge,
                     duration=getattr(self.cfg, "hud_hold_seconds", 6.5),
                 )
             except Exception:

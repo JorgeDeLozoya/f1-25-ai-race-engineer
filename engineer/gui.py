@@ -20,7 +20,7 @@ SPANISH_VOICES = [
     ("es-ES-AlvaroNeural", "Álvaro (España · Marc / Ingeniero F1)"),
     ("es-ES-ElviraNeural", "Elvira (España · Ingeniera de Estrategia)"),
     ("es-ES-XimenaNeural", "Ximena (España / Colombia · Muro)"),
-    ("es-MX-JorgeNeural", "Jorge (México · Enérgico / Dinámico)"),
+    ("es-MX-GerardoNeural", "Gerardo (México · Enérgico / Dinámico)"),
     ("es-MX-DaliaNeural", "Dalia (México · Muro de Boxes)"),
     ("es-AR-TomasNeural", "Tomás (Argentina · Directo / Radio)"),
     ("es-AR-ElenaNeural", "Elena (Argentina · Ingeniera)"),

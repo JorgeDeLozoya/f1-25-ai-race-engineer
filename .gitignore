@@ -6,3 +6,9 @@ cache/
 demo_audio/
 engineer.pid
 runtime_status.json
+build/
+dist/
+release_overtake/
+*.zip
+*.spec
+entrypoint.py

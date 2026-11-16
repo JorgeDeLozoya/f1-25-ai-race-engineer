@@ -24,7 +24,10 @@ Ingeniero de pista interactivo por voz con IA para **F1 25 / F1 26** en PC.
      - **UDP Port**: `20777`
      - **UDP Format**: `2025`
 2. **En Swofty Launcher**:
-   - Arrastra el archivo `jorge.ai-race-engineer.swoftyaddon` a la ventana de **Swofty Launcher** (o instala la carpeta `ai_race_engineer`).
+   - Arrastra el archivo `jorgedelo.ai-race-engineer.swoftyaddon` a la ventana de **Swofty Launcher** (o instala la carpeta `ai_race_engineer`).
    - En la barra lateral, dentro de **ADDON PANELS -> Race Engineer**, puedes pegar tu **Google Gemini API Key**, elegir idioma, palabras clave y probar la radio en directo.
 3. **Modo directo (con o sin Swofty)**:
    - Haz doble clic en `run_engineer.bat` (o ejecuta `.venv\Scripts\python -m engineer`).
+
+---
+**Autor**: JorgeDelo · *Sugerencias, mejoras, nuevas peticiones o reporte de fallos son siempre bienvenidos en Overtake.gg!*

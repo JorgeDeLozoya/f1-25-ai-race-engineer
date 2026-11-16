@@ -17,7 +17,7 @@ PYINSTALLER_EXE = ROOT_DIR / ".venv" / "Scripts" / "pyinstaller.exe"
 
 README_TEXT = """================================================================================
           F1 25 / F1 26 - AI RACE ENGINEER (VOICE + TELEMETRY + F1 TV HUD)
-                             F1 Community · Overtake.gg
+                               By JorgeDelo · Overtake.gg
 ================================================================================
 
 [ENGLISH]
@@ -26,6 +26,9 @@ Features real-time UDP telemetry analysis, F1 TV broadcast radio graphics overla
 OBS Studio Browser Source for streamers, Steering Wheel / Gamepad PTT support,
 neural voices in 6 languages (EN, ES, DE, FR, IT, PT), dynamic sprint & full race
 strategies, and realistic pit wall dialogue.
+
+* Created by JorgeDelo. Feedback, bug reports, and suggestions for improvement
+  are warmly welcomed in the Overtake.gg comments!
 
 1. QUICK START (STANDALONE)
 --------------------------------------------------------------------------------
@@ -55,7 +58,7 @@ In OBS Studio:
 
 3. FOR SWOFTY LAUNCHER USERS
 --------------------------------------------------------------------------------
-If you use Swofty Launcher, simply double-click "jorge.ai-race-engineer.swoftyaddon"
+If you use Swofty Launcher, simply double-click "jorgedelo.ai-race-engineer.swoftyaddon"
 or drop it into Swofty to install it with one click!
 
 4. POPULAR RADIO VOICE COMMANDS
@@ -94,6 +97,9 @@ fuente de navegador web para OBS Studio (streamers), soporte de botón PTT para
 volantes (Logitech, Fanatec, Thrustmaster, Moza) y mandos, voces neuronales en 6
 idiomas, y detección automática del piloto oficial que lleves.
 
+* Creado por JorgeDelo. ¡Cualquier sugerencia, idea para mejorar o reporte de
+  fallos es más que bienvenido en los comentarios de Overtake.gg!
+
 1. GUÍA RÁPIDA DE INSTALACIÓN
 --------------------------------------------------------------------------------
 1. Descomprime este archivo ZIP en cualquier carpeta de tu ordenador.
@@ -116,9 +122,9 @@ idiomas, y detección automática del piloto oficial que lleves.
 def build():
     print("=== 1. Empaquetando addon de Swofty (.swoftyaddon) ===")
     subprocess.run([str(VENV_PY), str(ROOT_DIR / "package_addon.py")], check=True)
-    addon_file = ROOT_DIR.parent / "jorge.ai-race-engineer.swoftyaddon"
+    addon_file = ROOT_DIR.parent / "jorgedelo.ai-race-engineer.swoftyaddon"
     if not addon_file.exists():
-        addon_file = ROOT_DIR / "jorge.ai-race-engineer.swoftyaddon"
+        addon_file = ROOT_DIR / "jorgedelo.ai-race-engineer.swoftyaddon"
 
     print("=== 2. Preparando punto de entrada main.py ===")
     entry_script = ROOT_DIR / "entrypoint.py"
@@ -169,7 +175,7 @@ def build():
 
     # Copiar el addon de Swofty empaquetado
     if addon_file.exists():
-        shutil.copy2(addon_file, RELEASE_DIR / "jorge.ai-race-engineer.swoftyaddon")
+        shutil.copy2(addon_file, RELEASE_DIR / "jorgedelo.ai-race-engineer.swoftyaddon")
 
     # Escribir README para Overtake
     (RELEASE_DIR / "README_OVERTAKE.txt").write_text(README_TEXT, encoding="utf-8")

@@ -138,8 +138,6 @@ class SwoftyEngineerPlugin:
         self.stop_engineer()
         root_dir = Path(__file__).resolve().parent
         pyw = root_dir / ".venv" / "Scripts" / "pythonw.exe"
-        if not pyw.exists():
-            pyw = Path(r"c:\Users\Jorge\.gemini\antigravity\scratch\f1_mods\ai_race_engineer\.venv\Scripts\pythonw.exe")
         exe = str(pyw) if pyw.exists() else sys.executable
         self._hud_proc = subprocess.Popen([exe, "-m", "engineer", "--gui"], cwd=str(root_dir))
 
@@ -449,7 +447,7 @@ class SwoftyEngineerPlugin:
                         "options": [
                             {"value": "es-ES-AlvaroNeural", "label": "Álvaro (España · Ingeniero F1)"},
                             {"value": "es-ES-ElviraNeural", "label": "Elvira (España · Ingeniera F1)"},
-                            {"value": "es-MX-JorgeNeural", "label": "Jorge (Latinoamérica · Muro)"},
+                            {"value": "es-MX-GerardoNeural", "label": "Gerardo (México / LatAm · Muro)"},
                             {"value": "es-AR-TomasNeural", "label": "Tomás (Argentina · Muro)"},
                         ],
                     }
