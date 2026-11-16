@@ -171,6 +171,16 @@ def tighten_pauses(samples: np.ndarray, sr: int, max_pause_ms: int = 75) -> np.n
     return np.concatenate(kept).astype(np.float32) if kept else samples
 
 
+VOICE_MAP: dict[str, str] = {
+    "en": "en-GB-RyanNeural",
+    "es": "es-ES-AlvaroNeural",
+    "de": "de-DE-KillianNeural",
+    "fr": "fr-FR-HenriNeural",
+    "it": "it-IT-DiegoNeural",
+    "pt": "pt-BR-AntonioNeural",
+}
+
+
 class RadioSpeaker:
     """Convierte texto a voz en espanol o ingles y lo reproduce como radio F1."""
 
@@ -184,7 +194,13 @@ class RadioSpeaker:
         clean = naturalize_for_speech(text, lang)
         if not clean:
             return
-        voice = self.cfg.voice_en if lang.lower().startswith("en") else self.cfg.voice_es
+        code = lang.lower()[:2]
+        if code == "en":
+            voice = self.cfg.voice_en
+        elif code == "es":
+            voice = self.cfg.voice_es
+        else:
+            voice = VOICE_MAP.get(code, self.cfg.voice_en)
         try:
             mp3_bytes = asyncio.run(self._synthesize(clean, voice, self.cfg.voice_rate))
             samples, sr = sf.read(io.BytesIO(mp3_bytes), dtype="float32")

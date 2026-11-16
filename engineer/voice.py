@@ -190,6 +190,66 @@ class VoiceListener(threading.Thread):
         except Exception as e:
             log.debug("No se pudo iniciar PTT opcional: %s", e)
 
+    def _start_controller_ptt_listener(self) -> None:
+        """Escucha eventos de pulsacion de botones en volantes (Logitech, Fanatec, Thrustmaster, Moza) o mandos USB."""
+        if not getattr(self.cfg, "controller_ptt_enabled", True):
+            return
+
+        def _poller():
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                class JOYINFOEX(ctypes.Structure):
+                    _fields_ = [
+                        ("dwSize", wintypes.DWORD),
+                        ("dwFlags", wintypes.DWORD),
+                        ("dwXpos", wintypes.DWORD),
+                        ("dwYpos", wintypes.DWORD),
+                        ("dwZpos", wintypes.DWORD),
+                        ("dwRpos", wintypes.DWORD),
+                        ("dwUpos", wintypes.DWORD),
+                        ("dwVpos", wintypes.DWORD),
+                        ("dwButtons", wintypes.DWORD),
+                        ("dwButtonNumber", wintypes.DWORD),
+                        ("dwPOV", wintypes.DWORD),
+                        ("dwReserved1", wintypes.DWORD),
+                        ("dwReserved2", wintypes.DWORD),
+                    ]
+
+                winmm = getattr(ctypes.windll, "winmm", None)
+                if not winmm:
+                    return
+
+                info = JOYINFOEX()
+                info.dwSize = ctypes.sizeof(JOYINFOEX)
+                info.dwFlags = 0x80  # JOY_RETURNBUTTONS
+
+                last_mask_by_dev: dict[int, int] = {}
+                target_btn = int(getattr(self.cfg, "controller_ptt_button", -1))
+
+                while not self._stop.is_set():
+                    time.sleep(0.02)  # 50 Hz
+                    pressed = False
+                    for dev_id in range(4):
+                        if winmm.joyGetPosEx(dev_id, ctypes.byref(info)) == 0:
+                            mask = info.dwButtons
+                            last = last_mask_by_dev.get(dev_id, 0)
+                            new_press = mask & (~last)
+                            last_mask_by_dev[dev_id] = mask
+                            if new_press:
+                                if target_btn < 0 or (new_press & (1 << target_btn)):
+                                    pressed = True
+                                    break
+                    if pressed and time.time() > self.armed_until:
+                        log.info("[RADIO PTT VOLANTE] Boton pulsado en volante/mando -> Radio abierta")
+                        self.arm_now(8.0)
+            except Exception as e:
+                log.debug("Error en controller PTT listener: %s", e)
+
+        threading.Thread(target=_poller, daemon=True, name="controller-ptt-listener").start()
+        log.info("Push-To-Talk para Volante y Mando USB activo")
+
     def run(self) -> None:
         try:
             recognizers: dict[str, KaldiRecognizer] = {}
@@ -202,6 +262,7 @@ class VoiceListener(threading.Thread):
             return
 
         self._start_ptt_listener()
+        self._start_controller_ptt_listener()
 
         def audio_callback(indata, frames, time_info, status):
             raw = bytes(indata)
