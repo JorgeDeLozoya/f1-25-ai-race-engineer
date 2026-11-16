@@ -187,6 +187,13 @@ def build():
             if item.is_file():
                 shutil.copy2(item, v_internal / item.name)
 
+        # Copiar dependencias de MSVC C++ Runtime para compatibilidad total en otros ordenadores
+        sys32 = Path(r"C:\Windows\System32")
+        for msvc_dll in ["msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll"]:
+            p_dll = sys32 / msvc_dll
+            if p_dll.exists():
+                shutil.copy2(p_dll, app_dir / "_internal" / msvc_dll)
+
     # Copiar config.json y archivo de arranque rapido
     cfg_file = ROOT_DIR / "config.json"
     if cfg_file.exists():
@@ -201,9 +208,49 @@ def build():
     (RELEASE_DIR / "README_OVERTAKE.txt").write_text(README_TEXT, encoding="utf-8")
     (target_app_dir / "README_OVERTAKE.txt").write_text(README_TEXT, encoding="utf-8")
 
-    # Bat de lanzamiento directo
-    bat_content = '@echo off\ncd /d "%~dp0\\AI_Race_Engineer"\nstart "" "AI_Race_Engineer.exe"\n'
+    # Bat de lanzamiento directo con comprobación de descompresión
+    bat_content = (
+        '@echo off\r\n'
+        'setlocal\r\n'
+        'cd /d "%~dp0"\r\n'
+        'if not exist "AI_Race_Engineer\\AI_Race_Engineer.exe" (\r\n'
+        '    echo.\r\n'
+        '    echo ======================================================================\r\n'
+        '    echo  ERROR: No se encuentra AI_Race_Engineer\\AI_Race_Engineer.exe\r\n'
+        '    echo ======================================================================\r\n'
+        '    echo  Por favor, asegurate de DESCOMPRIMIR (Extraer todo) el archivo ZIP\r\n'
+        '    echo  antes de ejecutar el programa. No lo abras directamente dentro del ZIP.\r\n'
+        '    echo ======================================================================\r\n'
+        '    echo.\r\n'
+        '    pause\r\n'
+        '    exit /b 1\r\n'
+        ')\r\n'
+        'cd "AI_Race_Engineer"\r\n'
+        'start "" "AI_Race_Engineer.exe"\r\n'
+    )
     (RELEASE_DIR / "Start_AI_Race_Engineer.bat").write_text(bat_content, encoding="utf-8")
+
+    # Bat de diagnóstico para ver errores si fallase en otro PC
+    debug_bat = (
+        '@echo off\r\n'
+        'setlocal\r\n'
+        'cd /d "%~dp0"\r\n'
+        'if not exist "AI_Race_Engineer\\AI_Race_Engineer.exe" (\r\n'
+        '    echo [ERROR] No se encuentra AI_Race_Engineer\\AI_Race_Engineer.exe.\r\n'
+        '    echo Asegurate de descomprimir todo el ZIP antes de iniciar.\r\n'
+        '    pause\r\n'
+        '    exit /b 1\r\n'
+        ')\r\n'
+        'echo Iniciando AI Race Engineer en modo consola...\r\n'
+        'cd "AI_Race_Engineer"\r\n'
+        '"AI_Race_Engineer.exe"\r\n'
+        'if %errorlevel% neq 0 (\r\n'
+        '    echo.\r\n'
+        '    echo [AVISO] La aplicacion se cerro con codigo %errorlevel%.\r\n'
+        '    pause\r\n'
+        ')\r\n'
+    )
+    (RELEASE_DIR / "Debug_Start_AI_Race_Engineer.bat").write_text(debug_bat, encoding="utf-8")
 
     print("=== 5. Creando archivo comprimido ZIP para Overtake.gg ===")
     zip_path = ROOT_DIR / "F1_25_AI_Race_Engineer_v1.0.3_Overtake.zip"
