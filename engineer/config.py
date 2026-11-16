@@ -13,12 +13,12 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 class EngineerConfig:
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
-    language: str = "es"                  # "es" (Espanol) o "en" (English) seleccionable manualmente
-    engineer_name: str = "Marc"           # Nombre del ingeniero
-    driver_name: str = "Jorge"            # Como te llama el ingeniero
+    language: str = "en"                  # "en" (English) or "es" (Espanol)
+    engineer_name: str = "Marc"           # Race engineer name
+    driver_name: str = "Driver"           # Fallback name if custom driver
     engineer_persona: str = "balanced"    # "balanced" (Marc), "gp" (Red Bull), "bono" (Mercedes), "ferrari" (Maranello), "canero" (Sargento)
-    voice_mode: str = "wake_word"         # "wake_word" (Palabra clave + F9), "always_on" (Directo sin palabra clave), "ptt_only" (Solo F9)
-    wake_words: str = "ingeniero, marc, engineer, bono, box"
+    voice_mode: str = "wake_word"         # "wake_word" (Wake word + F9), "always_on", "ptt_only"
+    wake_words: str = "engineer, marc, bono, box, radio"
     ptt_key: str = "f9"                   # Tecla Push-To-Talk opcional (ademas de palabra clave)
     udp_host: str = "0.0.0.0"
     udp_port: int = 20777
@@ -43,8 +43,8 @@ class EngineerConfig:
     hud_identity_mode: str = "auto"       # "auto" (Segun el coche que lleves en telemetria) o "custom" (Siempre tu nombre/equipo elegido)
     hud_custom_team: str = "Ferrari"      # Escuderia para el estilo visual cuando hud_identity_mode == "custom" o sin telemetria
     hud_custom_number: int = 16           # Dorsal personalizado (1-99)
-    mfd_enabled: bool = True              # Permitir que el ingeniero pulse teclas MFD en el juego por voz
-    auto_mfd_ai: bool = True              # La IA reajusta automaticamente MFD (Frenada/Diferencial/ERS/Parada/Compuesto)
+    mfd_enabled: bool = False             # Permitir que el ingeniero pulse teclas MFD en el juego por voz (desactivado por defecto)
+    auto_mfd_ai: bool = False             # La IA te aconseja por radio en vez de modificar teclas automaticamente
     mfd_box_key: str = "b"                # Tecla en F1 25 para Solicitar Parada en Boxes (Box This Lap)
     mfd_tyre_key: str = "t"               # Tecla en F1 25 para Cambiar Compuesto Siguiente en el MFD
     mfd_brake_up_key: str = "page_up"     # Tecla para subir reparto de frenada (+ delante)

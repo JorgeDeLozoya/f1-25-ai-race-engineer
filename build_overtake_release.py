@@ -17,7 +17,7 @@ PYINSTALLER_EXE = ROOT_DIR / ".venv" / "Scripts" / "pyinstaller.exe"
 
 README_TEXT = """================================================================================
           F1 25 / F1 26 - AI RACE ENGINEER (VOICE + TELEMETRY + F1 TV HUD)
-                             Created by Jorge · Overtake.gg
+                             F1 Community · Overtake.gg
 ================================================================================
 
 [ENGLISH]
