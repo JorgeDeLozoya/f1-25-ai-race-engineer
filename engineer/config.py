@@ -3,10 +3,25 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+
+def get_default_config_path() -> Path:
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        p_exe = exe_dir / "config.json"
+        if p_exe.exists():
+            return p_exe
+        p_parent = exe_dir.parent / "config.json"
+        if p_parent.exists():
+            return p_parent
+        return p_exe
+    return Path(__file__).resolve().parent.parent / "config.json"
+
+
+DEFAULT_CONFIG_PATH = get_default_config_path()
 
 
 @dataclass

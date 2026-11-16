@@ -1540,6 +1540,11 @@ class PitWallWindow:
     def _apply_ui_language(self) -> None:
         """Actualiza todos los textos de la interfaz (Pit Wall y Ajustes) entre Español e Inglés."""
         en = self._is_en()
+        if hasattr(self, "hud_overlay"):
+            try:
+                self.hud_overlay.update_language()
+            except Exception:
+                pass
         self.title_lbl.configure(
             text=f"  F1 25/26 PIT WALL  ·  {self.cfg.engineer_name.upper()}  ·  by JorgeDelo"
         )

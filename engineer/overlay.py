@@ -150,9 +150,14 @@ class RadioHudOverlay:
         )
         self.driver_msg_lbl.pack(fill=tk.X, pady=(0, 8))
 
+        def_txt = (
+            f'"RADIO ONLINE {self.cfg.driver_name.upper()}, LIVE TELEMETRY READY ON PIT WALL."'
+            if (self.cfg.language or "").lower() == "en"
+            else f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."'
+        )
         self.eng_msg_lbl = tk.Label(
             self.body_frame,
-            text=f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."',
+            text=def_txt,
             bg=self.BG_BODY,
             fg="#FFFFFF",
             font=("Segoe UI", 11, "bold italic"),
@@ -269,6 +274,20 @@ class RadioHudOverlay:
         self._show_until = max(self._show_until, time.time() + self.cfg.hud_hold_seconds + 2.0)
         self._sync_geometry_height()
         self._show_window()
+
+    def update_language(self) -> None:
+        """Actualiza textos del HUD cuando el usuario cambia el idioma en Ajustes."""
+        en = (self.cfg.language or "").lower() == "en"
+        def_txt = (
+            f'"RADIO ONLINE {self.cfg.driver_name.upper()}, LIVE TELEMETRY READY ON PIT WALL."'
+            if en
+            else f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."'
+        )
+        self.eng_msg_lbl.configure(text=def_txt)
+        if self.driver_msg_lbl.winfo_ismapped():
+            self.driver_msg_lbl.pack_forget()
+        self._update_identity_from_telemetry()
+        self._sync_geometry_height()
 
     def reset_position(self) -> None:
         """Restaura la posicion del HUD al lateral derecho por defecto."""
@@ -538,7 +557,8 @@ class RadioHudOverlay:
 
         if driver_talking_now:
             self._show_until = max(self._show_until, now + self.cfg.hud_hold_seconds)
-            live_txt = partial.upper() if partial else "ESCUCHANDO TRANSMISIÓN..."
+            def_listen = "RECEIVING RADIO TRANSMISSION..." if (self.cfg.language or "").lower() == "en" else "ESCUCHANDO TRANSMISIÓN..."
+            live_txt = partial.upper() if partial else def_listen
             if not self.driver_msg_lbl.winfo_ismapped():
                 self.driver_msg_lbl.pack(fill=tk.X, pady=(0, 8), before=self.eng_msg_lbl)
             self.driver_msg_lbl.configure(text=f'"{live_txt}"')
