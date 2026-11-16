@@ -11,7 +11,11 @@ import threading
 import time
 import tkinter as tk
 
-from PIL import Image, ImageTk
+try:
+    from PIL import Image, ImageTk
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
 
 from .app import RaceEngineerApp
 from .radio_fx import play_ack_beep, play_close_beep
@@ -379,26 +383,36 @@ class RadioHudOverlay:
             p = logos_dir / filename
             if p.exists():
                 try:
-                    with Image.open(p) as img:
-                        # Escalado nitido manteniendo proporcion (max alto 26px, max ancho 44px)
-                        ratio = min(44.0 / max(1, img.width), 26.0 / max(1, img.height))
-                        nw = max(1, int(img.width * ratio))
-                        nh = max(1, int(img.height * ratio))
-                        resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
-                        self._logo_images[badge] = ImageTk.PhotoImage(resized)
+                    if HAS_PIL:
+                        with Image.open(p) as img:
+                            # Escalado nitido manteniendo proporcion (max alto 26px, max ancho 44px)
+                            ratio = min(44.0 / max(1, img.width), 26.0 / max(1, img.height))
+                            nw = max(1, int(img.width * ratio))
+                            nh = max(1, int(img.height * ratio))
+                            resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                            self._logo_images[badge] = ImageTk.PhotoImage(resized)
+                    else:
+                        raw = tk.PhotoImage(file=str(p))
+                        sub = max(1, int(round(raw.height() / 26.0)))
+                        self._logo_images[badge] = raw.subsample(sub, sub) if sub > 1 else raw
                 except Exception as e:
                     log.warning("No se pudo cargar logo %s: %s", filename, e)
 
         f1_path = logos_dir / "f1logo.png"
         if f1_path.exists():
             try:
-                with Image.open(f1_path) as img:
-                    ratio = min(44.0 / max(1, img.width), 20.0 / max(1, img.height))
-                    nw = max(1, int(img.width * ratio))
-                    nh = max(1, int(img.height * ratio))
-                    self._logo_images["_DEFAULT"] = ImageTk.PhotoImage(
-                        img.resize((nw, nh), Image.Resampling.LANCZOS)
-                    )
+                if HAS_PIL:
+                    with Image.open(f1_path) as img:
+                        ratio = min(44.0 / max(1, img.width), 20.0 / max(1, img.height))
+                        nw = max(1, int(img.width * ratio))
+                        nh = max(1, int(img.height * ratio))
+                        self._logo_images["_DEFAULT"] = ImageTk.PhotoImage(
+                            img.resize((nw, nh), Image.Resampling.LANCZOS)
+                        )
+                else:
+                    raw = tk.PhotoImage(file=str(f1_path))
+                    sub = max(1, int(round(raw.height() / 20.0)))
+                    self._logo_images["_DEFAULT"] = raw.subsample(sub, sub) if sub > 1 else raw
             except Exception:
                 pass
 

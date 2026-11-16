@@ -129,7 +129,7 @@ def build():
     print("=== 2. Preparando punto de entrada main.py ===")
     entry_script = ROOT_DIR / "entrypoint.py"
     entry_script.write_text(
-        'import sys\nfrom engineer.app import main\n\nif __name__ == "__main__":\n    if "--gui" not in sys.argv and "--daemon" not in sys.argv and "--demo" not in sys.argv:\n        sys.argv.append("--gui")\n    main()\n',
+        'import sys\nimport PIL\nimport PIL.Image\nimport PIL.ImageTk\nimport engineer.gui\nimport engineer.overlay\nfrom engineer.app import main\n\nif __name__ == "__main__":\n    if "--gui" not in sys.argv and "--daemon" not in sys.argv and "--demo" not in sys.argv:\n        sys.argv.append("--gui")\n    main()\n',
         encoding="utf-8"
     )
 
@@ -152,6 +152,12 @@ def build():
         "--collect-all=vosk",
         "--collect-all=sounddevice",
         "--collect-all=soundfile",
+        "--collect-all=PIL",
+        "--hidden-import=PIL",
+        "--hidden-import=PIL.Image",
+        "--hidden-import=PIL.ImageTk",
+        "--hidden-import=engineer.gui",
+        "--hidden-import=engineer.overlay",
         "--hidden-import=edge_tts",
         "--hidden-import=pynput",
         "--hidden-import=pynput.keyboard",
