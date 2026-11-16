@@ -55,9 +55,22 @@ class EngineerConfig:
     mfd_wing_up_key: str = "insert"       # Tecla para subir angulo de aleron delantero en parada
     mfd_wing_down_key: str = "delete"     # Tecla para bajar angulo de aleron delantero en parada
 
+    controller_ptt_enabled: bool = True   # Activar Push-To-Talk desde cualquier volante o mando USB
+    controller_ptt_button: int = -1       # -1 = Cualquier boton del volante/mando, o 0-31 para boton especifico
+    obs_overlay_port: int = 8088          # Puerto local para OBS Browser Source (http://localhost:8088/overlay)
+    streamer_mode: bool = False           # Modo streamer (filtro limpio familiar sin tacos)
+
     @property
     def wake_word_list(self) -> list[str]:
-        return [w.strip().lower() for w in self.wake_words.split(",") if w.strip()]
+        words = [w.strip().lower() for w in self.wake_words.split(",") if w.strip()]
+        if self.engineer_name:
+            eng_norm = self.engineer_name.strip().lower()
+            if eng_norm and eng_norm not in words:
+                words.insert(0, eng_norm)
+        for kw in ("engineer", "ingeniero", "ingenieur", "ingénieur", "ingegnere", "engenheiro", "box", "bono", "radio"):
+            if kw not in words:
+                words.append(kw)
+        return words
 
     def resolved_api_key(self) -> str:
         return (self.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")).strip()

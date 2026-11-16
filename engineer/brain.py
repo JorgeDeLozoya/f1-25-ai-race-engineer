@@ -506,7 +506,10 @@ class EngineerBrain:
                 "desgaste de gomas, en cuántas vueltas pillas al de delante, reglajes, órdenes de equipo, o discúteme la estrategia en vivo."
             )
 
-        if words <= {"hola", "buenas", "hey", "hi", "hello", "ingeniero", "marc", "marca", "engineer", "radio", "que", "tal", "como", "estas", "bono"} or any(
+        greet_names = {"hola", "buenas", "hey", "hi", "hello", "ingeniero", "marc", "marca", "engineer", "radio", "que", "tal", "como", "estas", "bono"}
+        if self.cfg.engineer_name:
+            greet_names.add(self.cfg.engineer_name.lower())
+        if words <= greet_names or any(
             g in norm for g in (
                 "me escuchas", "me copias", "me oyes", "se me escucha", "radio check",
                 "loud and clear", "do you hear me", "can you hear me", "you hear me",

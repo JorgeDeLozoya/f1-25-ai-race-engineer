@@ -19,6 +19,7 @@ from .telemetry.context import build_standings
 from .telemetry.listener import RaceState, TelemetryListener
 from .tts import RadioSpeaker
 from .voice import VoiceListener
+from .web_overlay import OverlayServer
 
 log = logging.getLogger("engineer")
 PID_FILE = DEFAULT_CONFIG_PATH.parent / "engineer.pid"
@@ -87,11 +88,13 @@ class RaceEngineerApp:
         self._msg_lock = threading.Lock()
         self.active_driver_query: str = ""
         self.hud_preview_until: float = 0.0
+        self.web_overlay = OverlayServer(self, port=getattr(self.cfg, "obs_overlay_port", 8088))
 
     def start(self) -> None:
         self.telemetry.start()
         if self.voice:
             self.voice.start()
+        self.web_overlay.start()
         threading.Thread(target=self._status_Loop, daemon=True, name="status-writer").start()
 
     def stop(self) -> None:
@@ -99,6 +102,7 @@ class RaceEngineerApp:
         self.telemetry.stop()
         if self.voice:
             self.voice.stop()
+        self.web_overlay.stop()
         self._write_status(running=False)
 
     def restart_voice(self) -> None:
@@ -123,6 +127,23 @@ class RaceEngineerApp:
             self.active_driver_query = ""
             log.info("[%s - %s]: %s", self.cfg.engineer_name.upper(), lang.upper(), reply)
             self._write_status(running=True)
+
+            try:
+                from .strategy import analyze_strategy
+                rep = analyze_strategy(state, self.cfg.driver_name)
+                dname = rep.player_driver.split()[0] if (rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #")) else self.cfg.driver_name
+                self.web_overlay.trigger(
+                    driver=dname,
+                    number=str(rep.player_race_number or 1),
+                    team=rep.player_team or "Formula 1",
+                    speaker=self.cfg.engineer_name or "Engineer",
+                    msg=reply,
+                    color="#e10600",
+                    duration=getattr(self.cfg, "hud_hold_seconds", 6.5),
+                )
+            except Exception:
+                pass
+
             self.speaker.speak(reply, lang=lang, save_wav=save_wav, blocking=True)
             return reply, lang
         finally:

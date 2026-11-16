@@ -534,7 +534,14 @@ class PitWallWindow:
         self.lbl_lang, self.cmb_lang = self._add_combo_row(
             c1,
             "Idioma del Ingeniero y la Interfaz:",
-            ["🇪🇸 Español (ES)", "🇬🇧 English (EN)"],
+            [
+                "🇬🇧 English (EN)",
+                "🇪🇸 Español (ES)",
+                "🇩🇪 Deutsch (DE)",
+                "🇫🇷 Français (FR)",
+                "🇮🇹 Italiano (IT)",
+                "🇧🇷 Português (PT)",
+            ],
         )
         self.cmb_lang.bind("<<ComboboxSelected>>", lambda _e: self._on_lang_combo_change())
 
@@ -542,8 +549,19 @@ class PitWallWindow:
             c1, "Tu Nombre de Piloto (Cómo te llama):", self.cfg.driver_name
         )
         self.lbl_eng_name, self.ent_eng_name = self._add_entry_row(
-            c1, "Nombre de tu Ingeniero de Pista:", self.cfg.engineer_name
+            c1, "Nombre del Ingeniero (Palabra Clave de Voz):", self.cfg.engineer_name
         )
+
+        self.lbl_eng_hint = tk.Label(
+            c1,
+            text="💡 Decir este nombre por voz activa la radio automáticamente.",
+            bg=self.CARD,
+            fg=self.CYAN,
+            font=("Segoe UI", 8, "italic"),
+            anchor="w",
+            padx=14,
+        )
+        self.lbl_eng_hint.pack(fill=tk.X, pady=(0, 4))
 
         self.lbl_persona, self.cmb_persona = self._add_combo_row(
             c1,
@@ -699,6 +717,46 @@ class PitWallWindow:
         )
         self.btn_bind_key.pack(side=tk.LEFT)
 
+        ctrl_row = tk.Frame(c2, bg=self.CARD)
+        ctrl_row.pack(fill=tk.X, padx=14, pady=4)
+        self.lbl_controller_ptt = tk.Label(
+            ctrl_row,
+            text="Botón Volante/Mando (PTT):",
+            bg=self.CARD,
+            fg=self.TEXT,
+            font=("Segoe UI", 9),
+            width=26,
+            anchor="w",
+        )
+        self.lbl_controller_ptt.pack(side=tk.LEFT)
+
+        self.lbl_controller_status = tk.Label(
+            ctrl_row,
+            text="Cualquier Botón",
+            bg=self.CARD,
+            fg=self.CYAN,
+            font=("Consolas", 10, "bold"),
+            width=14,
+            anchor="w",
+        )
+        self.lbl_controller_status.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.btn_bind_controller = tk.Button(
+            ctrl_row,
+            text="🎮 Detectar Botón Volante / Mando...",
+            bg="#26334D",
+            fg="#FFFFFF",
+            activebackground="#344669",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            font=("Segoe UI", 8, "bold"),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self._start_controller_capture,
+        )
+        self.btn_bind_controller.pack(side=tk.LEFT)
+
         self.lbl_fx, self.scale_fx = self._add_slider_row(
             c2, "Efecto DSP de Radio FIA (%):", 0, 100
         )
@@ -851,6 +909,35 @@ class PitWallWindow:
             command=lambda: self.hud_overlay.reset_position(),
         )
         self.btn_reset_hud.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+
+        obs_row = tk.Frame(c3, bg=self.CARD)
+        obs_row.pack(fill=tk.X, padx=14, pady=(8, 4))
+        self.lbl_obs_streamer = tk.Label(
+            obs_row,
+            text="OBS / Streamlabs Browser Source:",
+            bg=self.CARD,
+            fg=self.TEXT,
+            font=("Segoe UI", 9, "bold"),
+            width=28,
+            anchor="w",
+        )
+        self.lbl_obs_streamer.pack(side=tk.LEFT)
+
+        self.btn_copy_obs = tk.Button(
+            obs_row,
+            text="📋 Copiar URL para OBS",
+            bg="#26334D",
+            fg="#FFFFFF",
+            activebackground="#344669",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            font=("Segoe UI", 8, "bold"),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self._copy_obs_url,
+        )
+        self.btn_copy_obs.pack(side=tk.LEFT)
 
         # ---- CARD 4: TELEMETRÍA UDP, SIMHUB FORWARDING E IA GENERATIVA ----
         c4 = self._make_settings_card(grid_wrap, 1, 1)
@@ -1108,7 +1195,9 @@ class PitWallWindow:
 
     def _load_values_into_settings_form(self) -> None:
         # 1. Idioma
-        self.cmb_lang.current(1 if self._is_en() else 0)
+        lang_codes = ["en", "es", "de", "fr", "it", "pt"]
+        l_code = self.cfg.language.lower()[:2]
+        self.cmb_lang.current(lang_codes.index(l_code) if l_code in lang_codes else (1 if self._is_en() else 0))
         # 2. Nombres
         self.ent_drv_name.delete(0, tk.END)
         self.ent_drv_name.insert(0, self.cfg.driver_name)
@@ -1137,6 +1226,12 @@ class PitWallWindow:
         self.ent_wake.insert(0, self.cfg.wake_words)
         self.ent_ptt.delete(0, tk.END)
         self.ent_ptt.insert(0, self.cfg.ptt_key.upper())
+        btn = getattr(self.cfg, "controller_ptt_button", -1)
+        if btn < 0:
+            c_text = "Any Button" if self._is_en() else "Cualquier Botón"
+        else:
+            c_text = f"Button {btn + 1}" if self._is_en() else f"Botón {btn + 1}"
+        self.lbl_controller_status.configure(text=c_text, fg=self.CYAN)
         self.scale_fx.set(int(round(self.cfg.radio_effect * 100)))
         self.scale_vol.set(int(round(self.cfg.volume * 100)))
         self.var_radio_beep.set(bool(self.cfg.radio_beep_enabled))
@@ -1178,9 +1273,12 @@ class PitWallWindow:
 
     def _save_all_settings(self) -> None:
         old_mic = self.cfg.mic_device
-        self.cfg.language = "en" if self.cmb_lang.current() == 1 else "es"
+        lang_codes = ["en", "es", "de", "fr", "it", "pt"]
+        l_idx = max(0, self.cmb_lang.current())
+        self.cfg.language = lang_codes[l_idx] if l_idx < len(lang_codes) else "en"
         self.cfg.driver_name = self.ent_drv_name.get().strip() or "Driver"
-        self.cfg.engineer_name = self.ent_eng_name.get().strip() or "Marc"
+        def_eng = "Ingeniero" if self.cfg.language == "es" else "Engineer"
+        self.cfg.engineer_name = self.ent_eng_name.get().strip() or def_eng
         personas = ["balanced", "gp", "bono", "ferrari", "canero"]
         self.cfg.engineer_persona = personas[max(0, self.cmb_persona.current())]
         self.cfg.voice_es = SPANISH_VOICES[max(0, self.cmb_voice_es.current())][0]
@@ -1257,7 +1355,18 @@ class PitWallWindow:
         )
 
     def _on_lang_combo_change(self) -> None:
-        self.cfg.language = "en" if self.cmb_lang.current() == 1 else "es"
+        lang_codes = ["en", "es", "de", "fr", "it", "pt"]
+        idx = max(0, self.cmb_lang.current())
+        self.cfg.language = lang_codes[idx] if idx < len(lang_codes) else "en"
+        curr_eng = self.ent_eng_name.get().strip()
+        if self.cfg.language == "es" and curr_eng in ("Engineer", "Marc", ""):
+            self.ent_eng_name.delete(0, tk.END)
+            self.ent_eng_name.insert(0, "Ingeniero")
+            self.cfg.engineer_name = "Ingeniero"
+        elif self.cfg.language == "en" and curr_eng in ("Ingeniero", "Marc", ""):
+            self.ent_eng_name.delete(0, tk.END)
+            self.ent_eng_name.insert(0, "Engineer")
+            self.cfg.engineer_name = "Engineer"
         self.cfg.save()
         self._apply_ui_language()
 
@@ -1313,6 +1422,91 @@ class PitWallWindow:
             bg="#26334D",
             fg="#FFFFFF",
         )
+
+    def _start_controller_capture(self) -> None:
+        self.btn_bind_controller.configure(
+            text="🎮 Press Wheel Button..." if self._is_en() else "🎮 Pulsa el botón en tu volante/mando...",
+            bg=self.AMBER,
+            fg="#000000",
+        )
+
+        def _poll():
+            import ctypes
+            from ctypes import wintypes
+
+            class JOYINFOEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize", wintypes.DWORD),
+                    ("dwFlags", wintypes.DWORD),
+                    ("dwXpos", wintypes.DWORD),
+                    ("dwYpos", wintypes.DWORD),
+                    ("dwZpos", wintypes.DWORD),
+                    ("dwRpos", wintypes.DWORD),
+                    ("dwUpos", wintypes.DWORD),
+                    ("dwVpos", wintypes.DWORD),
+                    ("dwButtons", wintypes.DWORD),
+                    ("dwButtonNumber", wintypes.DWORD),
+                    ("dwPOV", wintypes.DWORD),
+                    ("dwReserved1", wintypes.DWORD),
+                    ("dwReserved2", wintypes.DWORD),
+                ]
+
+            winmm = getattr(ctypes.windll, "winmm", None)
+            if not winmm:
+                return
+
+            info = JOYINFOEX()
+            info.dwSize = ctypes.sizeof(JOYINFOEX)
+            info.dwFlags = 0x80
+            last_mask = 0
+            t_end = time.time() + 8.0
+            found_btn = None
+
+            while time.time() < t_end:
+                time.sleep(0.02)
+                for dev in range(4):
+                    if winmm.joyGetPosEx(dev, ctypes.byref(info)) == 0:
+                        m = info.dwButtons
+                        new_p = m & (~last_mask)
+                        last_mask = m
+                        if new_p:
+                            for b in range(32):
+                                if new_p & (1 << b):
+                                    found_btn = b
+                                    break
+                    if found_btn is not None:
+                        break
+                if found_btn is not None:
+                    break
+
+            def _update():
+                if found_btn is not None:
+                    self.cfg.controller_ptt_enabled = True
+                    self.cfg.controller_ptt_button = found_btn
+                    self.cfg.save()
+                    msg = f"✅ Wheel Button {found_btn + 1}" if self._is_en() else f"✅ Botón {found_btn + 1} de Volante"
+                    self.lbl_controller_status.configure(text=msg, fg=self.GREEN)
+                else:
+                    self.lbl_controller_status.configure(text="❌ No button detected" if self._is_en() else "❌ No se detectó botón", fg=self.AMBER)
+                self.btn_bind_controller.configure(
+                    text="🎮 Detect Wheel Button" if self._is_en() else "🎮 Detectar Botón Volante / Mando",
+                    bg="#26334D",
+                    fg="#FFFFFF",
+                )
+
+            self.root.after(0, _update)
+
+        threading.Thread(target=_poll, daemon=True).start()
+
+    def _copy_obs_url(self) -> None:
+        url = f"http://localhost:{getattr(self.cfg, 'obs_overlay_port', 8088)}/overlay"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(url)
+        self.btn_copy_obs.configure(text="✅ Copied to Clipboard!" if self._is_en() else "✅ ¡Copiado al Portapapeles!", bg=self.GREEN, fg="#000000")
+        self.root.after(2500, lambda: self.btn_copy_obs.configure(
+            text="📋 Copy URL for OBS" if self._is_en() else "📋 Copiar URL para OBS",
+            bg="#26334D", fg="#FFFFFF"
+        ))
 
     def _toggle_api_visibility(self) -> None:
         self._show_api_key = not self._show_api_key
@@ -1423,7 +1617,12 @@ class PitWallWindow:
         )
         self.lbl_lang.configure(text="Language (Voice & UI):" if en else "Idioma del Ingeniero y la Interfaz:")
         self.lbl_drv_name.configure(text="Your Driver Name:" if en else "Tu Nombre de Piloto (Cómo te llama):")
-        self.lbl_eng_name.configure(text="Race Engineer Name:" if en else "Nombre de tu Ingeniero de Pista:")
+        self.lbl_eng_name.configure(text="Race Engineer Name (Voice Wake Word):" if en else "Nombre del Ingeniero (Palabra Clave de Voz):")
+        self.lbl_eng_hint.configure(
+            text="💡 Saying this name activates the radio callout automatically."
+            if en
+            else "💡 Decir este nombre por voz activa la radio automáticamente."
+        )
         self.lbl_persona.configure(text="Engineer Personality Style:" if en else "Personalidad del Ingeniero (Estilo):")
         personas = ["balanced", "gp", "bono", "ferrari", "canero"]
         self.cmb_persona.configure(
@@ -1478,6 +1677,8 @@ class PitWallWindow:
         self.lbl_wake.configure(text="Wake Words (comma-separated):" if en else "Palabras Clave (separadas por coma):")
         self.lbl_ptt.configure(text="Push-To-Talk (PTT) Key:" if en else "Tecla Push-To-Talk (PTT):")
         self.btn_bind_key.configure(text="🎹 Bind Key..." if en else "🎹 Detectar Tecla...")
+        self.lbl_controller_ptt.configure(text="Wheel/Gamepad PTT Button:" if en else "Botón Volante/Mando (PTT):")
+        self.btn_bind_controller.configure(text="🎮 Detect Wheel Button..." if en else "🎮 Detectar Botón Volante / Mando...")
         self.lbl_fx.configure(text="FIA Radio DSP Effect (%):" if en else "Efecto DSP de Radio FIA (%):")
         self.lbl_vol.configure(text="Master Radio Volume (%):" if en else "Volumen General de Radio (%):")
         self.chk_radio_beep.configure(
@@ -1589,6 +1790,8 @@ class PitWallWindow:
         self.btn_reset_hud.configure(
             text="🎯 Reset HUD Position" if en else "🎯 Resetear Posición del HUD"
         )
+        self.lbl_obs_streamer.configure(text="OBS Studio / Streamlabs Browser Source:" if en else "OBS / Streamlabs Browser Source:")
+        self.btn_copy_obs.configure(text="📋 Copy URL for OBS" if en else "📋 Copiar URL para OBS")
 
         self.c4_header.configure(
             text="📡 UDP TELEMETRY, SIMHUB FORWARDING & AI"

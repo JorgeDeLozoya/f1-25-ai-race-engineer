@@ -23,7 +23,8 @@ README_TEXT = """===============================================================
 [ENGLISH]
 An authentic, real-time AI Race Engineer for EA Sports F1 25 and F1 26.
 Features real-time UDP telemetry analysis, F1 TV broadcast radio graphics overlay,
-natural Spanish and English neural voice engines, dynamic sprint & full race
+OBS Studio Browser Source for streamers, Steering Wheel / Gamepad PTT support,
+neural voices in 6 languages (EN, ES, DE, FR, IT, PT), dynamic sprint & full race
 strategies, and realistic pit wall dialogue.
 
 1. QUICK START (STANDALONE)
@@ -39,14 +40,25 @@ strategies, and realistic pit wall dialogue.
      * UDP Format: 2025 (or 2024)
    - Video Settings -> Display Mode:
      * Set to "Borderless Windowed" (allows the F1 TV Radio HUD overlay to render smoothly).
-4. In the app, select your preferred microphone and press F9 (or say "Engineer" / "Ingeniero").
+4. In the app, select your preferred microphone. You can press F9, use the "Detect Wheel Button"
+   feature to bind your steering wheel / gamepad button, or simply say "Engineer" to open the radio!
 
-2. FOR SWOFTY LAUNCHER USERS
+2. OBS STUDIO / STREAMLABS BROWSER SOURCE (FOR STREAMERS)
+--------------------------------------------------------------------------------
+Want the F1 TV radio graphic to show up on your Twitch / YouTube stream even in full screen?
+In OBS Studio:
+- Add a new "Browser Source"
+- URL: http://localhost:8088/overlay
+- Width: 1920
+- Height: 1080
+- Done! The radio graphic will pop up with transparent background whenever the pit wall talks!
+
+3. FOR SWOFTY LAUNCHER USERS
 --------------------------------------------------------------------------------
 If you use Swofty Launcher, simply double-click "jorge.ai-race-engineer.swoftyaddon"
 or drop it into Swofty to install it with one click!
 
-3. POPULAR RADIO VOICE COMMANDS (ENGLISH & SPANISH)
+4. POPULAR RADIO VOICE COMMANDS
 --------------------------------------------------------------------------------
 * Retirements / DNFs:
   - "How many cars are out?" / "Who is out?" / "Any retirements?"
@@ -78,9 +90,9 @@ or drop it into Swofty to install it with one click!
 [ESPAÑOL]
 Ingeniero de pista hiperrealista con IA para EA Sports F1 25 y F1 26.
 Incluye análisis de telemetría UDP a 60Hz, HUD gráfico de radio estilo F1 TV,
-efecto de sonido de radio de cockpit real, voces neuronales en español e inglés,
-estrategias dinámicas para carreras de 5 vueltas (Sprint) y 100%, y detección
-automática del piloto oficial que llevas (Max, Fernando, Carlos, Lewis...).
+fuente de navegador web para OBS Studio (streamers), soporte de botón PTT para
+volantes (Logitech, Fanatec, Thrustmaster, Moza) y mandos, voces neuronales en 6
+idiomas, y detección automática del piloto oficial que lleves.
 
 1. GUÍA RÁPIDA DE INSTALACIÓN
 --------------------------------------------------------------------------------
@@ -94,7 +106,8 @@ automática del piloto oficial que llevas (Max, Fernando, Carlos, Lewis...).
      * Frecuencia de envío UDP: 60Hz
    - Opciones de vídeo -> Pantalla:
      * Modo de visualización: "Ventana sin bordes" (necesario para ver el HUD de radio en pantalla).
-4. Elige tu micrófono en los ajustes y pulsa F9 (o di "Ingeniero" / "Marc") para hablar por radio.
+4. Elige tu micrófono en los ajustes y pulsa F9, detecta el botón de tu volante con el botón de ajustes,
+   o di "Ingeniero" por voz para hablar por radio.
 
 ================================================================================
 ¡Disfruta de tus carreras y nos vemos en lo más alto del podio!
@@ -134,6 +147,7 @@ def build():
         "--hidden-import=requests",
         "--hidden-import=tkinter",
         "--hidden-import=tkinter.ttk",
+        "--hidden-import=engineer.web_overlay",
         str(entry_script),
     ]
     subprocess.run(cmd, check=True)
