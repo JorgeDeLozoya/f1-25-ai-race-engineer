@@ -9,6 +9,9 @@ from pathlib import Path
 
 
 def get_default_config_path() -> Path:
+    env_cfg = os.environ.get("ENGINEER_CONFIG", "").strip()
+    if env_cfg:
+        return Path(env_cfg)
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
         p_exe = exe_dir / "config.json"
@@ -18,7 +21,15 @@ def get_default_config_path() -> Path:
         if p_parent.exists():
             return p_parent
         return p_exe
-    return Path(__file__).resolve().parent.parent / "config.json"
+    pkg_parent = Path(__file__).resolve().parent.parent
+    local_cfg = pkg_parent / "config.json"
+    if local_cfg.exists():
+        return local_cfg
+    if pkg_parent.name == "app":
+        root_cfg = pkg_parent.parent / "config.json"
+        if root_cfg.exists():
+            return root_cfg
+    return local_cfg
 
 
 DEFAULT_CONFIG_PATH = get_default_config_path()

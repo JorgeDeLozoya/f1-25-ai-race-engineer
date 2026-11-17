@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -170,6 +171,9 @@ class VoiceListener(threading.Thread):
         log.info("[RADIO ABIERTA] Escuchando mensaje del piloto durante %.0fs...", seconds)
 
     def _start_ptt_listener(self) -> None:
+        if os.name == "nt":
+            self._start_win32_ptt_listener()
+            return
         try:
             from pynput import keyboard
 
@@ -189,6 +193,88 @@ class VoiceListener(threading.Thread):
             log.info("Tecla Push-To-Talk opcional activa: [%s]", (self.cfg.ptt_key or "F9").upper())
         except Exception as e:
             log.debug("No se pudo iniciar PTT opcional: %s", e)
+
+    def _start_win32_ptt_listener(self) -> None:
+        """Detecta la pulsacion de la tecla PTT configurada mediante GetAsyncKeyState (sin hooks globales)."""
+        import ctypes
+
+        vk_map: dict[str, int] = {
+            **{chr(c): c - 32 for c in range(ord("a"), ord("z") + 1)},
+            **{str(d): 0x30 + d for d in range(10)},
+            **{f"f{i}": 0x6F + i for i in range(1, 13)},
+            "space": 0x20,
+            "return": 0x0D,
+            "enter": 0x0D,
+            "tab": 0x09,
+            "escape": 0x1B,
+            "esc": 0x1B,
+            "backspace": 0x08,
+            "caps_lock": 0x14,
+            "shift": 0x10,
+            "shift_l": 0xA0,
+            "shift_r": 0xA1,
+            "ctrl": 0x11,
+            "control_l": 0xA2,
+            "control_r": 0xA3,
+            "alt": 0x12,
+            "alt_l": 0xA4,
+            "alt_r": 0xA5,
+            "insert": 0x2D,
+            "delete": 0x2E,
+            "home": 0x24,
+            "end": 0x23,
+            "prior": 0x21,
+            "page_up": 0x21,
+            "pgup": 0x21,
+            "next": 0x22,
+            "page_down": 0x22,
+            "pgdn": 0x22,
+            "up": 0x26,
+            "down": 0x28,
+            "left": 0x25,
+            "right": 0x27,
+            **{f"kp_{d}": 0x60 + d for d in range(10)},
+            **{f"numpad{d}": 0x60 + d for d in range(10)},
+            "kp_multiply": 0x6A,
+            "kp_add": 0x6B,
+            "plus": 0xBB,
+            "kp_subtract": 0x6D,
+            "minus": 0xBD,
+            "kp_decimal": 0x6E,
+            "kp_divide": 0x6F,
+        }
+
+        def _resolve_vk(user32, key_name: str) -> int | None:
+            if not key_name:
+                return None
+            if key_name in vk_map:
+                return vk_map[key_name]
+            if len(key_name) == 1:
+                scan = user32.VkKeyScanW(ord(key_name))
+                if scan != -1:
+                    return scan & 0xFF
+            return None
+
+        def _poller() -> None:
+            try:
+                user32 = ctypes.windll.user32
+                was_pressed = False
+                while not self._stop.is_set():
+                    time.sleep(0.02)
+                    key_name = (self.cfg.ptt_key or "").strip().lower()
+                    vk = _resolve_vk(user32, key_name)
+                    if not vk:
+                        was_pressed = False
+                        continue
+                    pressed = bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                    if pressed and not was_pressed and time.time() > self.armed_until:
+                        self.arm_now(8.0)
+                    was_pressed = pressed
+            except Exception as e:
+                log.debug("No se pudo iniciar PTT opcional: %s", e)
+
+        threading.Thread(target=_poller, daemon=True, name="ptt-key-listener").start()
+        log.info("Tecla Push-To-Talk opcional activa: [%s]", (self.cfg.ptt_key or "F9").upper())
 
     def _start_controller_ptt_listener(self) -> None:
         """Escucha eventos de pulsacion de botones en volantes (Logitech, Fanatec, Thrustmaster, Moza) o mandos USB."""

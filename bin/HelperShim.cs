@@ -1,13 +1,25 @@
 using System;
+using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Reflection;
+
+[assembly: AssemblyTitle("AI Race Engineer Swofty Helper")]
+[assembly: AssemblyDescription("Launches swofty_helper.py for F1 25/26 AI Race Engineer")]
+[assembly: AssemblyProduct("F1 25/26 AI Race Engineer")]
+[assembly: AssemblyCompany("JorgeDelo")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]
 
 class HelperShim
 {
-    [DllImport("msvcrt.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int _wspawnvp(int mode, string cmdname, string[] argv);
-
-    private const int _P_WAIT = 0;
+    static string QuoteArg(string arg)
+    {
+        if (string.IsNullOrEmpty(arg))
+            return "\"\"";
+        if (arg.IndexOfAny(new[] { ' ', '\t', '"' }) < 0)
+            return arg;
+        return "\"" + arg.Replace("\"", "\\\"") + "\"";
+    }
 
     static int Main(string[] args)
     {
@@ -15,8 +27,16 @@ class HelperShim
         string addonDir = Path.GetFullPath(Path.Combine(binDir, ".."));
         string scriptPath = Path.Combine(addonDir, "swofty_helper.py");
 
+        if (!File.Exists(scriptPath))
+        {
+            string parentCandidate = Path.GetFullPath(Path.Combine(addonDir, "..", "swofty_helper.py"));
+            if (File.Exists(parentCandidate))
+                scriptPath = parentCandidate;
+        }
+
         string[] candidates = new string[] {
             Path.Combine(addonDir, ".venv", "Scripts", "python.exe"),
+            Path.Combine(addonDir, "runtime", "python.exe"),
             Path.Combine(addonDir, "..", ".venv", "Scripts", "python.exe"),
             "python.exe"
         };
@@ -31,27 +51,28 @@ class HelperShim
             }
         }
 
-        if (!File.Exists(scriptPath))
-        {
-            string parentCandidate = Path.GetFullPath(Path.Combine(addonDir, "..", "swofty_helper.py"));
-            if (File.Exists(parentCandidate))
-            {
-                scriptPath = parentCandidate;
-            }
-        }
+        string workDir = Path.GetDirectoryName(scriptPath);
+        if (!string.IsNullOrEmpty(workDir) && Directory.Exists(workDir))
+            Directory.SetCurrentDirectory(workDir);
 
-        Directory.SetCurrentDirectory(Path.GetDirectoryName(scriptPath));
-
-        string[] argv = new string[args.Length + 4];
-        argv[0] = "\"" + pythonExe + "\"";
-        argv[1] = "-u";
-        argv[2] = "\"" + scriptPath + "\"";
+        string argLine = "-u " + QuoteArg(scriptPath);
         for (int i = 0; i < args.Length; i++)
-        {
-            argv[i + 3] = "\"" + args[i] + "\"";
-        }
-        argv[args.Length + 3] = null;
+            argLine += " " + QuoteArg(args[i]);
 
-        return _wspawnvp(_P_WAIT, pythonExe, argv);
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = pythonExe,
+            Arguments = argLine,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using (Process proc = Process.Start(psi))
+        {
+            if (proc == null)
+                return 1;
+            proc.WaitForExit();
+            return proc.ExitCode;
+        }
     }
 }

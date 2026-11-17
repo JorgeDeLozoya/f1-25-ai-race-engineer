@@ -5,6 +5,7 @@ models/
 cache/
 demo_audio/
 engineer.pid
+engineer.ctrl
 runtime_status.json
 build/
 dist/
