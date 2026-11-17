@@ -262,21 +262,29 @@ def build_portable_runtime(rebuild: bool = False) -> Path:
     return RUNTIME_CACHE_DIR
 
 
-def _copy_app_sources(dest_app_dir: Path) -> None:
-    """Copia el paquete engineer/ limpio (sin __pycache__ ni binarios temporales) a app/."""
+def _copy_app_sources(dest_app_dir: Path, runtime_src: Path) -> None:
+    """Copia engineer/ y compila el codigo a bytecode .pyc (sin exponer .py en texto plano)."""
     dest_eng = dest_app_dir / "engineer"
     shutil.copytree(
         ROOT_DIR / "engineer",
         dest_eng,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
+    runtime_py = runtime_src / "python.exe"
+    subprocess.run(
+        [str(runtime_py), "-s", "-m", "compileall", "-b", "-f", "-q", str(dest_eng)],
+        check=True,
+    )
+    for py_file in dest_eng.rglob("*.py"):
+        py_file.unlink()
+    _strip_pycache(dest_eng)
 
 
 def _write_standalone_folder(folder_standalone: Path, runtime_src: Path) -> None:
     folder_standalone.mkdir(parents=True, exist_ok=True)
 
     target_app_dir = folder_standalone / "app"
-    _copy_app_sources(target_app_dir)
+    _copy_app_sources(target_app_dir, runtime_src)
 
     target_runtime_dir = folder_standalone / "runtime"
     shutil.copytree(runtime_src, target_runtime_dir)
