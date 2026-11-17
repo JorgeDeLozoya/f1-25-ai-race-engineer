@@ -20,7 +20,7 @@ SPANISH_VOICES = [
     ("es-ES-AlvaroNeural", "Álvaro (España · Marc / Ingeniero F1)"),
     ("es-ES-ElviraNeural", "Elvira (España · Ingeniera de Estrategia)"),
     ("es-ES-XimenaNeural", "Ximena (España / Colombia · Muro)"),
-    ("es-MX-JorgeNeural", "Jorge (México · Enérgico / Dinámico)"),
+    ("es-MX-GerardoNeural", "Gerardo (México · Enérgico / Dinámico)"),
     ("es-MX-DaliaNeural", "Dalia (México · Muro de Boxes)"),
     ("es-AR-TomasNeural", "Tomás (Argentina · Directo / Radio)"),
     ("es-AR-ElenaNeural", "Elena (Argentina · Ingeniera)"),
@@ -63,7 +63,7 @@ class PitWallWindow:
         self.cfg = app.cfg
         self.root = tk.Tk()
         self.root.title(
-            f"F1 25/26 AI Race Engineer · {self.cfg.engineer_name} (Pit Wall, F1 TV HUD & Settings)"
+            f"F1 25/26 AI Race Engineer by JorgeDelo · {self.cfg.engineer_name} (Pit Wall, F1 TV HUD & Settings)"
         )
         self.root.geometry("1220x790")
         self.root.minsize(1060, 700)
@@ -123,7 +123,7 @@ class PitWallWindow:
 
         self.title_lbl = tk.Label(
             top,
-            text=f"  F1 25/26 PIT WALL  ·  {self.cfg.engineer_name.upper()}",
+            text=f"  F1 25/26 PIT WALL  ·  {self.cfg.engineer_name.upper()}  ·  by JorgeDelo",
             bg=self.CARD,
             fg=self.TEXT,
             font=("Segoe UI", 11, "bold"),
@@ -1023,6 +1023,18 @@ class PitWallWindow:
         )
         self.lbl_overtake_note.pack(fill=tk.X, padx=14, pady=(8, 4))
 
+        self.lbl_credits = tk.Label(
+            c4,
+            text="🏆 Desarrollado por JorgeDelo · Overtake.gg\n💬 ¡Cualquier sugerencia, idea o reporte de fallos es bienvenido en Overtake.gg!",
+            bg=self.CARD,
+            fg=self.CYAN,
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=520,
+        )
+        self.lbl_credits.pack(fill=tk.X, padx=14, pady=(6, 4))
+
         # ---- BARRA INFERIOR DE GUARDADO EN AJUSTES ----
         save_bar = tk.Frame(
             parent, bg=self.CARD, highlightthickness=1, highlightbackground="#252C3F"
@@ -1528,9 +1540,22 @@ class PitWallWindow:
     def _apply_ui_language(self) -> None:
         """Actualiza todos los textos de la interfaz (Pit Wall y Ajustes) entre Español e Inglés."""
         en = self._is_en()
+        if hasattr(self, "hud_overlay"):
+            try:
+                self.hud_overlay.update_language()
+            except Exception:
+                pass
         self.title_lbl.configure(
-            text=f"  F1 25/26 PIT WALL  ·  {self.cfg.engineer_name.upper()}"
+            text=f"  F1 25/26 PIT WALL  ·  {self.cfg.engineer_name.upper()}  ·  by JorgeDelo"
         )
+        if hasattr(self, "lbl_credits"):
+            self.lbl_credits.configure(
+                text=(
+                    "🏆 Creator & Developer: JorgeDelo · Overtake.gg\n💬 Feedback, bug reports and suggestions are warmly welcomed in the comments!"
+                    if en
+                    else "🏆 Desarrollado por JorgeDelo · Overtake.gg\n💬 ¡Cualquier sugerencia, idea o reporte de fallos es bienvenido en Overtake.gg!"
+                )
+            )
         self.tab_pitwall_btn.configure(
             text="🏁 PIT WALL & LIVE RADIO" if en else "🏁 MURO DE BOXES Y RADIO"
         )

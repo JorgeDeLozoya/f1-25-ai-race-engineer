@@ -2,17 +2,49 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import math
 import os
+from pathlib import Path
 import random
 import threading
 import time
 import tkinter as tk
 
+try:
+    from PIL import Image, ImageTk
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
+
 from .app import RaceEngineerApp
 from .radio_fx import play_ack_beep, play_close_beep
 from .strategy import analyze_strategy
 from .telemetry import lookups as L
+
+log = logging.getLogger("overlay")
+
+BADGE_TO_LOGO: dict[str, str] = {
+    "FER": "ferrari.png",
+    "RBR": "redbull.png",
+    "MER": "mercedes.png",
+    "MCL": "mclaren.png",
+    "AMR": "astonmartin.png",
+    "ALP": "alpine.png",
+    "WIL": "williams.png",
+    "RB": "racingbulls.png",
+    "STR": "racingbulls.png",
+    "KICK": "sauber.png",
+    "SAU": "sauber.png",
+    "HAAS": "haas.png",
+    "AUDI": "audi.png",
+    "CAD": "cadillac.png",
+    "REN": "renault.png",
+    "FI": "forceindia.png",
+    "LOT": "lotus.png",
+    "HRT": "hrt.png",
+    "VRG": "virgin.png",
+}
 
 
 def _blend_hex(bg_hex: str, fg_hex: str, alpha: float) -> str:
@@ -71,6 +103,10 @@ class RadioHudOverlay:
         self._badge_code = "FER"
         self._race_num = 16
 
+        # Logos oficiales de escuderias F1
+        self._logo_images: dict[str, ImageTk.PhotoImage] = {}
+        self._load_logos()
+
         self._build_widgets()
         self._position_initial()
         self.win.after(120, self._apply_win32_noactivate)
@@ -114,9 +150,14 @@ class RadioHudOverlay:
         )
         self.driver_msg_lbl.pack(fill=tk.X, pady=(0, 8))
 
+        def_txt = (
+            f'"RADIO ONLINE {self.cfg.driver_name.upper()}, LIVE TELEMETRY READY ON PIT WALL."'
+            if (self.cfg.language or "").lower() == "en"
+            else f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."'
+        )
         self.eng_msg_lbl = tk.Label(
             self.body_frame,
-            text=f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."',
+            text=def_txt,
             bg=self.BG_BODY,
             fg="#FFFFFF",
             font=("Segoe UI", 11, "bold italic"),
@@ -234,6 +275,20 @@ class RadioHudOverlay:
         self._sync_geometry_height()
         self._show_window()
 
+    def update_language(self) -> None:
+        """Actualiza textos del HUD cuando el usuario cambia el idioma en Ajustes."""
+        en = (self.cfg.language or "").lower() == "en"
+        def_txt = (
+            f'"RADIO ONLINE {self.cfg.driver_name.upper()}, LIVE TELEMETRY READY ON PIT WALL."'
+            if en
+            else f'"RADIO CONECTADA {self.cfg.driver_name.upper()}, TELEMETRÍA EN VIVO LISTA EN EL MURO."'
+        )
+        self.eng_msg_lbl.configure(text=def_txt)
+        if self.driver_msg_lbl.winfo_ismapped():
+            self.driver_msg_lbl.pack_forget()
+        self._update_identity_from_telemetry()
+        self._sync_geometry_height()
+
     def reset_position(self) -> None:
         """Restaura la posicion del HUD al lateral derecho por defecto."""
         self.cfg.hud_x = -1
@@ -338,37 +393,54 @@ class RadioHudOverlay:
         self._race_num = num
         self.driver_msg_lbl.configure(fg=self._team_color)
 
+    def _load_logos(self) -> None:
+        """Carga los logos PNG oficiales de las escuderias desde engineer/assets/logos/."""
+        logos_dir = Path(__file__).resolve().parent / "assets" / "logos"
+        if not logos_dir.is_dir():
+            return
+        for badge, filename in BADGE_TO_LOGO.items():
+            p = logos_dir / filename
+            if p.exists():
+                try:
+                    if HAS_PIL:
+                        with Image.open(p) as img:
+                            # Escalado nitido manteniendo proporcion (max alto 26px, max ancho 44px)
+                            ratio = min(44.0 / max(1, img.width), 26.0 / max(1, img.height))
+                            nw = max(1, int(img.width * ratio))
+                            nh = max(1, int(img.height * ratio))
+                            resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                            self._logo_images[badge] = ImageTk.PhotoImage(resized)
+                    else:
+                        raw = tk.PhotoImage(file=str(p))
+                        sub = max(1, int(round(raw.height() / 26.0)))
+                        self._logo_images[badge] = raw.subsample(sub, sub) if sub > 1 else raw
+                except Exception as e:
+                    log.warning("No se pudo cargar logo %s: %s", filename, e)
+
+        f1_path = logos_dir / "f1logo.png"
+        if f1_path.exists():
+            try:
+                if HAS_PIL:
+                    with Image.open(f1_path) as img:
+                        ratio = min(44.0 / max(1, img.width), 20.0 / max(1, img.height))
+                        nw = max(1, int(img.width * ratio))
+                        nh = max(1, int(img.height * ratio))
+                        self._logo_images["_DEFAULT"] = ImageTk.PhotoImage(
+                            img.resize((nw, nh), Image.Resampling.LANCZOS)
+                        )
+                else:
+                    raw = tk.PhotoImage(file=str(f1_path))
+                    sub = max(1, int(round(raw.height() / 20.0)))
+                    self._logo_images["_DEFAULT"] = raw.subsample(sub, sub) if sub > 1 else raw
+            except Exception:
+                pass
+
     def _draw_team_badge(self, c: tk.Canvas, cx: float, cy: float, badge: str, color: str) -> None:
-        """Dibuja el escudo de la escuderia al estilo F1 TV junto a la palabra RADIO."""
-        if badge == "FER":
-            # Escudo amarillo Scuderia Ferrari con franja tricolor italiana superior
-            pts = [cx - 12, cy - 14, cx + 12, cy - 14, cx + 11, cy + 3, cx, cy + 15, cx - 11, cy + 3]
-            c.create_polygon(pts, fill="#FFF200", outline="#1A1A1A", width=1.5)
-            c.create_rectangle(cx - 11, cy - 14, cx - 4, cy - 10, fill="#009246", outline="")
-            c.create_rectangle(cx - 4, cy - 14, cx + 4, cy - 10, fill="#FFFFFF", outline="")
-            c.create_rectangle(cx + 4, cy - 14, cx + 11, cy - 10, fill="#CE2B37", outline="")
-            c.create_text(cx, cy + 1, text="SF", fill="#000000", font=("Segoe UI Black", 8, "bold"))
-        elif badge == "MER":
-            # Estrella de 3 puntas Mercedes-AMG
-            c.create_oval(cx - 13, cy - 13, cx + 13, cy + 13, fill="#0E1117", outline="#E2E8F0", width=2)
-            c.create_line(cx, cy, cx, cy - 11, fill="#E2E8F0", width=2)
-            c.create_line(cx, cy, cx - 9, cy + 8, fill="#E2E8F0", width=2)
-            c.create_line(cx, cy, cx + 9, cy + 8, fill="#E2E8F0", width=2)
-        elif badge == "KICK":
-            # Circulo verde neon Kick Sauber con K
-            c.create_oval(cx - 13, cy - 13, cx + 13, cy + 13, fill="#0B0E12", outline="#52E252", width=2)
-            c.create_text(cx, cy, text="K", fill="#52E252", font=("Segoe UI Black", 11, "bold"))
-        elif badge == "MCL":
-            # Swoosh Papaya McLaren
-            pts = [cx - 14, cy + 4, cx + 12, cy - 10, cx + 6, cy + 6, cx - 4, cy + 2]
-            c.create_polygon(pts, fill="#FF8000", outline="")
-        elif badge == "RBR":
-            # Emblema Red Bull Racing
-            c.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#FFD700", outline="")
-            c.create_polygon([cx - 14, cy + 2, cx - 2, cy - 3, cx - 4, cy + 5], fill="#E10600", outline="")
-            c.create_polygon([cx + 14, cy + 2, cx + 2, cy - 3, cx + 4, cy + 5], fill="#E10600", outline="")
+        """Dibuja el escudo PNG real de la escuderia al estilo F1 TV junto a la palabra RADIO."""
+        photo = self._logo_images.get(badge) or self._logo_images.get("_DEFAULT")
+        if photo:
+            c.create_image(cx, cy, image=photo)
         else:
-            # Escudo moderno con las siglas de la escuderia (WIL, AMR, ALP, HRT, REN...)
             c.create_oval(cx - 13, cy - 13, cx + 13, cy + 13, fill="#11151E", outline=color, width=2)
             c.create_text(cx, cy, text=badge[:3], fill=color, font=("Segoe UI Black", 7, "bold"))
 
@@ -420,7 +492,7 @@ class RadioHudOverlay:
             anchor="ne",
         )
         bbox = c.bbox(radio_id)
-        badge_cx = (bbox[0] - 20) if bbox else (w - 135)
+        badge_cx = (bbox[0] - 28) if bbox else (w - 140)
         self._draw_team_badge(c, badge_cx, 54, self._badge_code, color)
 
         # Ecualizador de barras verticales F1 TV (36 barras sobre linea base del color del equipo)
@@ -485,7 +557,8 @@ class RadioHudOverlay:
 
         if driver_talking_now:
             self._show_until = max(self._show_until, now + self.cfg.hud_hold_seconds)
-            live_txt = partial.upper() if partial else "ESCUCHANDO TRANSMISIÓN..."
+            def_listen = "RECEIVING RADIO TRANSMISSION..." if (self.cfg.language or "").lower() == "en" else "ESCUCHANDO TRANSMISIÓN..."
+            live_txt = partial.upper() if partial else def_listen
             if not self.driver_msg_lbl.winfo_ismapped():
                 self.driver_msg_lbl.pack(fill=tk.X, pady=(0, 8), before=self.eng_msg_lbl)
             self.driver_msg_lbl.configure(text=f'"{live_txt}"')

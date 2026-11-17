@@ -34,7 +34,7 @@ def send_test_telemetry(host: str = "127.0.0.1", port: int = 20777, final_lap: b
 
     # 1. Participants packet (ID 4)
     drivers = [
-        ("VERSTAPPEN", 2), ("NORRIS", 8), ("LECLERC", 1), ("JORGE", 4),
+        ("VERSTAPPEN", 2), ("NORRIS", 8), ("LECLERC", 1), ("HAMILTON", 0),
         ("SAINZ", 3), ("HAMILTON", 1), ("RUSSELL", 0), ("ALONSO", 4),
         ("PIASTRI", 8), ("GASLY", 5),
     ]

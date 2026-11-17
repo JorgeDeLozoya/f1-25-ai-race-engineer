@@ -7,12 +7,35 @@ import logging
 import socketserver
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .app import RaceEngineerApp
 
 log = logging.getLogger("web-overlay")
+
+BADGE_TO_LOGO: dict[str, str] = {
+    "FER": "ferrari.png",
+    "RBR": "redbull.png",
+    "MER": "mercedes.png",
+    "MCL": "mclaren.png",
+    "AMR": "astonmartin.png",
+    "ALP": "alpine.png",
+    "WIL": "williams.png",
+    "RB": "racingbulls.png",
+    "STR": "racingbulls.png",
+    "KICK": "sauber.png",
+    "SAU": "sauber.png",
+    "HAAS": "haas.png",
+    "AUDI": "audi.png",
+    "CAD": "cadillac.png",
+    "REN": "renault.png",
+    "FI": "forceindia.png",
+    "LOT": "lotus.png",
+    "HRT": "hrt.png",
+    "VRG": "virgin.png",
+}
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -143,6 +166,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="hud-header">
     <div class="team-color-box" id="team-color-box"></div>
     <div class="car-number" id="car-number">1</div>
+    <img id="team-logo" src="" alt="" style="height: 28px; max-width: 46px; object-fit: contain; margin-right: 10px; display: none;" />
     <div class="driver-info">
       <div class="driver-name" id="driver-name">VERSTAPPEN</div>
       <div class="team-name" id="team-name">Red Bull Racing</div>
@@ -163,6 +187,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   const accentBar = document.getElementById("accent-bar");
   const teamColorBox = document.getElementById("team-color-box");
   const carNumber = document.getElementById("car-number");
+  const teamLogo = document.getElementById("team-logo");
   const driverName = document.getElementById("driver-name");
   const teamName = document.getElementById("team-name");
   const speakerTag = document.getElementById("speaker-tag");
@@ -184,6 +209,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const col = data.color || "#e10600";
         accentBar.style.background = col;
         teamColorBox.style.background = col;
+        if (data.logo_url) {
+          teamLogo.src = data.logo_url;
+          teamLogo.style.display = "block";
+        } else {
+          teamLogo.style.display = "none";
+        }
         hud.classList.add("visible");
       } else {
         hud.classList.remove("visible");
@@ -215,7 +246,18 @@ class OverlayServer:
             "until": 0.0,
         }
 
-    def trigger(self, driver: str, number: str, team: str, speaker: str, msg: str, color: str, duration: float = 6.5) -> None:
+    def trigger(
+        self,
+        driver: str,
+        number: str,
+        team: str,
+        speaker: str,
+        msg: str,
+        color: str,
+        badge: str = "",
+        duration: float = 6.5,
+    ) -> None:
+        logo_fname = BADGE_TO_LOGO.get(badge, "f1logo.png")
         self.current_state = {
             "visible": True,
             "driver_name": driver.upper(),
@@ -224,6 +266,7 @@ class OverlayServer:
             "speaker": speaker.upper(),
             "message": msg,
             "color": color,
+            "logo_url": f"/logos/{logo_fname}",
             "until": time.time() + duration,
         }
 
@@ -250,6 +293,20 @@ class OverlayServer:
                     if time.time() > st["until"]:
                         st["visible"] = False
                     self.wfile.write(json.dumps(st).encode("utf-8"))
+                elif self.path.startswith("/logos/"):
+                    fname = self.path.split("/logos/")[-1].split("?")[0]
+                    logos_dir = Path(__file__).resolve().parent / "assets" / "logos"
+                    fpath = logos_dir / fname
+                    if fpath.is_file() and fpath.suffix.lower() == ".png":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "image/png")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        with open(fpath, "rb") as lf:
+                            self.wfile.write(lf.read())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
                 else:
                     self.send_response(404)
                     self.end_headers()

@@ -5,12 +5,12 @@ import argparse
 import json
 import logging
 import os
-import signal
-import subprocess
+import socket
 import sys
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from .brain import EngineerBrain
 from .config import DEFAULT_CONFIG_PATH, EngineerConfig
@@ -23,41 +23,75 @@ from .web_overlay import OverlayServer
 
 log = logging.getLogger("engineer")
 PID_FILE = DEFAULT_CONFIG_PATH.parent / "engineer.pid"
+CTRL_FILE = DEFAULT_CONFIG_PATH.parent / "engineer.ctrl"
+_CTRL_QUIT_CB: Callable[[], None] | None = None
+_CTRL_SOCK: socket.socket | None = None
 
 
-def _kill_pid_quietly(pid: int) -> None:
-    """Termina un PID en Windows usando la API nativa de kernel32 sin lanzar taskkill.exe."""
-    if os.name == "nt":
-        try:
-            import ctypes
-            PROCESS_TERMINATE = 0x0001
-            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
-            if handle:
-                ctypes.windll.kernel32.TerminateProcess(handle, 0)
-                ctypes.windll.kernel32.CloseHandle(handle)
-        except Exception:
-            pass
-    else:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except Exception:
-            pass
+def register_shutdown_callback(cb: Callable[[], None]) -> None:
+    """Registra el callback de cierre limpio ante una nueva instancia o comando stop."""
+    global _CTRL_QUIT_CB
+    _CTRL_QUIT_CB = cb
+
+
+def request_running_instance_stop(timeout: float = 0.4) -> bool:
+    """Solicita por loopback local que cualquier instancia previa se cierre limpiamente."""
+    if not CTRL_FILE.exists():
+        return False
+    try:
+        port = int(CTRL_FILE.read_text(encoding="utf-8").strip())
+        if port <= 0:
+            return False
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as conn:
+            conn.sendall(b"QUIT\n")
+        return True
+    except Exception:
+        return False
 
 
 def ensure_single_instance() -> None:
-    """Cierra cualquier instancia previa de AI Race Engineer para evitar audio duplicado."""
-    my_pid = os.getpid()
-    parent_pid = os.getppid()
-    if PID_FILE.exists():
-        try:
-            old_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
-            if old_pid > 0 and old_pid not in (my_pid, parent_pid):
-                _kill_pid_quietly(old_pid)
-                time.sleep(0.25)
-        except Exception:
-            pass
+    """Cierra cualquier instancia previa de AI Race Engineer por canal local para evitar audio duplicado."""
+    global _CTRL_SOCK
+    if request_running_instance_stop():
+        time.sleep(0.35)
+
     try:
-        PID_FILE.write_text(str(my_pid), encoding="utf-8")
+        PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    except Exception:
+        pass
+
+    if _CTRL_SOCK is not None:
+        return
+
+    try:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(2)
+        _CTRL_SOCK = srv
+        port = srv.getsockname()[1]
+        CTRL_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CTRL_FILE.write_text(str(port), encoding="utf-8")
+
+        def _serve_ctrl() -> None:
+            while True:
+                try:
+                    conn, _ = srv.accept()
+                    with conn:
+                        data = conn.recv(64)
+                    if b"QUIT" in data:
+                        if _CTRL_QUIT_CB is not None:
+                            try:
+                                _CTRL_QUIT_CB()
+                            except Exception:
+                                pass
+                        time.sleep(0.15)
+                        os._exit(0)
+                except OSError:
+                    break
+                except Exception:
+                    continue
+
+        threading.Thread(target=_serve_ctrl, daemon=True, name="instance-ctrl").start()
     except Exception:
         pass
 
@@ -130,15 +164,22 @@ class RaceEngineerApp:
 
             try:
                 from .strategy import analyze_strategy
+                from .telemetry import lookups as L
                 rep = analyze_strategy(state, self.cfg.driver_name)
-                dname = rep.player_driver.split()[0] if (rep.player_driver and rep.player_driver.upper() not in ("CAR", "PLAYER", "JUGADOR", "UNKNOWN", "CAR #")) else self.cfg.driver_name
+                drv, color, badge, num = L.resolve_radio_identity(
+                    rep.player_driver,
+                    rep.player_team,
+                    fallback_driver=self.cfg.driver_name,
+                    race_number=rep.player_race_number,
+                )
                 self.web_overlay.trigger(
-                    driver=dname,
-                    number=str(rep.player_race_number or 1),
+                    driver=drv,
+                    number=str(num),
                     team=rep.player_team or "Formula 1",
                     speaker=self.cfg.engineer_name or "Engineer",
                     msg=reply,
-                    color="#e10600",
+                    color=color,
+                    badge=badge,
                     duration=getattr(self.cfg, "hud_hold_seconds", 6.5),
                 )
             except Exception:
@@ -207,7 +248,12 @@ def main() -> None:
     parser.add_argument("--gui", action="store_true", help="Abrir ventana grafica F1 Team Radio (ideal para compartir pantalla)")
     parser.add_argument("--no-voice", action="store_true", help="Desactivar captura de microfono")
     parser.add_argument("--demo", action="store_true", help="Ejecutar demostracion de voz y radio (ES + EN)")
+    parser.add_argument("--stop", action="store_true", help="Detener limpiamente cualquier instancia activa")
     args = parser.parse_args()
+
+    if args.stop:
+        request_running_instance_stop()
+        return
 
     logging.basicConfig(
         level=logging.INFO,
@@ -251,6 +297,7 @@ def main() -> None:
         ensure_single_instance()
 
     app = RaceEngineerApp(cfg, status_file=status_path, enable_voice=not args.no_voice)
+    register_shutdown_callback(app.stop)
 
     if args.gui:
         from .gui import PitWallWindow
